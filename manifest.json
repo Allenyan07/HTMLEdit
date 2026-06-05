@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "原型标注工具",
+  "version": "1.0.0",
+  "description": "在原型页面上直接标注修改意见，支持跨页面汇总和一键定位",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "file:///*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon_default_16.png",
+      "32": "icons/icon_default_32.png",
+      "48": "icons/icon_default_48.png",
+      "128": "icons/icon_default.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*", "file:///*"],
+      "js": [
+        "content/storage.js",
+        "content/selector.js",
+        "content/messaging.js",
+        "content/area-selector.js",
+        "content/annotator.js",
+        "content/panel.js",
+        "content/content.js"
+      ],
+      "css": ["content/content.css"],
+      "all_frames": true,
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon_default_16.png",
+    "32": "icons/icon_default_32.png",
+    "48": "icons/icon_default_48.png",
+    "128": "icons/icon_default.png"
+  }
+}
