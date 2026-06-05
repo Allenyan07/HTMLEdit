@@ -102,8 +102,10 @@ const Panel = (() => {
     document.head.appendChild(style);
     pushStyleSheet = style;
 
-    // Dynamically adjust fixed-position elements
-    adjustFixedElements(true);
+    // Wait for DOM reflow before reading computed styles
+    requestAnimationFrame(() => {
+      adjustFixedElements(true);
+    });
   }
 
   function removePushStyles() {
@@ -115,14 +117,13 @@ const Panel = (() => {
   }
 
   function adjustFixedElements(push) {
-    // Find ALL fixed-position elements in the page (not just body direct children)
-    // and shift them left so they don't overlap our panel
-    const allElements = document.querySelectorAll('*');
+    // Find fixed-position elements — limit to body descendants (skip shadow DOM)
+    // Only check elements up to ~5 levels deep for performance
+    const allElements = document.querySelectorAll('body *, body');
     for (let i = 0; i < allElements.length; i++) {
       const el = allElements[i];
       // Skip our own elements
       if (el.id && el.id.startsWith('__proto_annotator')) continue;
-      if (el.id === '__proto_annotator_push_styles__') continue;
       // Skip shadow DOM hosts and elements inside shadow DOM
       if (el.shadowRoot) continue;
       if (el.getRootNode() !== document) continue;
@@ -354,6 +355,7 @@ const Panel = (() => {
 
   let editCardContainer = null;
   let editCardShadow = null;
+  let editCardCloseTimer = null;
 
   function showEditCard(annotation) {
     closeEditCard();
@@ -498,15 +500,21 @@ const Panel = (() => {
 
   function closeEditCard() {
     if (editOverlay) {
+      if (editCardCloseTimer) {
+        clearTimeout(editCardCloseTimer);
+        editCardCloseTimer = null;
+      }
       editOverlay.classList.remove('edit-overlay-visible');
-      setTimeout(() => {
-        if (editCardContainer) {
-          editCardContainer.remove();
+      const container = editCardContainer;
+      editCardCloseTimer = setTimeout(() => {
+        if (editCardContainer === container) {
+          container.remove();
           editCardContainer = null;
           editCardShadow = null;
+          editCardCloseTimer = null;
         }
-        editOverlay = null;
       }, 200);
+      editOverlay = null;
     }
   }
 
@@ -536,6 +544,7 @@ const Panel = (() => {
   }
 
   async function cycleStatus(id) {
+    // Kept for potential future use (status cycling)
     const annotations = await ProtoStorage.getAnnotations();
     const annotation = annotations.find((a) => a.id === id);
     if (!annotation) return;

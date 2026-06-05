@@ -73,6 +73,7 @@ const SelectorUtils = (() => {
   }
 
   function getElementRect(el) {
+    // Unused — kept for potential future use
     if (!el) return null;
     const rect = el.getBoundingClientRect();
     return {
@@ -87,7 +88,6 @@ const SelectorUtils = (() => {
     generateSelector,
     findElement,
     getElementText,
-    getElementHTML,
-    getElementRect
+    getElementHTML
   };
 })();

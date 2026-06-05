@@ -10,7 +10,9 @@
     "webNavigation"
   ],
   "host_permissions": [
-    "file:///*"
+    "file:///*",
+    "http://*/*",
+    "https://*/*"
   ],
   "background": {
     "service_worker": "background.js"

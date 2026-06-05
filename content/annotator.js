@@ -5,7 +5,6 @@ const Annotator = (() => {
   let highlightOverlay = null;
   const badges = [];
   const areaOverlays = [];
-  let rafId = null;
   let capturedSelection = null;
   let scrollResizeHandler = null;
 
@@ -433,10 +432,6 @@ const Annotator = (() => {
       window.removeEventListener('scroll', scrollResizeHandler, true);
       window.removeEventListener('resize', scrollResizeHandler);
       scrollResizeHandler = null;
-    }
-    if (rafId) {
-      cancelAnimationFrame(rafId);
-      rafId = null;
     }
   }
 
