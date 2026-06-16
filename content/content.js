@@ -1,5 +1,5 @@
 const ProtoAnnotator = (() => {
-  let modeActive = false;
+  let currentMode = 'off';
 
   function init() {
     Messaging.onMessage(handleMessage);
@@ -14,13 +14,15 @@ const ProtoAnnotator = (() => {
       }
       if (response && response.active) {
         console.log('[ProtoAnnotator] Restoring active mode on init');
-        activateMode();
+        setMode(response.mode || 'annotate');
       }
     });
   }
 
   function handleKeyDown(e) {
-    if (!modeActive) return;
+    if (currentMode === 'off') return;
+
+    if (currentMode === 'edit' && Editor.handleKeyDown(e)) return;
 
     // Escape: close card, edit overlay, or remove highlight
     if (e.key === 'Escape') {
@@ -42,7 +44,7 @@ const ProtoAnnotator = (() => {
     }
 
     // Ctrl+Shift+E: export annotations
-    if (e.ctrlKey && e.shiftKey && (e.key === 'e' || e.key === 'E')) {
+    if (currentMode === 'annotate' && e.ctrlKey && e.shiftKey && (e.key === 'e' || e.key === 'E')) {
       e.preventDefault();
       if (Messaging.isTopFrame) {
         Panel.exportAnnotations();
@@ -56,12 +58,8 @@ const ProtoAnnotator = (() => {
         return { pong: true };
 
       case 'MODE_CHANGED':
-        console.log('[ProtoAnnotator] MODE_CHANGED:', message.active);
-        if (message.active) {
-          activateMode();
-        } else {
-          deactivateMode();
-        }
+        console.log('[ProtoAnnotator] MODE_CHANGED:', message.mode || message.active);
+        setMode(message.mode || (message.active ? 'annotate' : 'off'));
         break;
 
       case 'ANNOTATION_CREATED':
@@ -161,33 +159,48 @@ const ProtoAnnotator = (() => {
   }
 
   function activateMode() {
-    if (modeActive) return;
-    modeActive = true;
-    console.log('[ProtoAnnotator] Mode activated');
-
-    Annotator.activate();
-
-    if (Messaging.isTopFrame) {
-      Panel.create();
-      Panel.show();
-    }
+    setMode('annotate');
   }
 
   function deactivateMode() {
-    if (!modeActive) return;
-    modeActive = false;
-    console.log('[ProtoAnnotator] Mode deactivated');
+    setMode('off');
+  }
 
-    Annotator.deactivate();
+  function setMode(mode) {
+    if (!mode) mode = 'off';
+    if (currentMode === mode) return;
 
-    if (Messaging.isTopFrame) {
-      Panel.hide();
-      // If panel was minimized (FAB visible), destroy it including FAB
-      Panel.destroy();
+    if (currentMode === 'annotate') {
+      Annotator.deactivate();
+      if (Messaging.isTopFrame) {
+        Panel.hide();
+        Panel.destroy();
+      }
+    } else if (currentMode === 'edit') {
+      Editor.deactivate();
+    }
+
+    currentMode = mode;
+
+    if (mode === 'off') {
+      console.log('[ProtoAnnotator] Mode off');
+      return;
+    }
+
+    console.log('[ProtoAnnotator] Mode activated');
+
+    if (mode === 'annotate') {
+      Annotator.activate();
+      if (Messaging.isTopFrame) {
+        Panel.create();
+        Panel.show();
+      }
+    } else if (mode === 'edit') {
+      Editor.activate();
     }
   }
 
-  return { init, activateMode, deactivateMode };
+  return { init, activateMode, deactivateMode, setMode };
 })();
 
 if (document.readyState === 'loading') {

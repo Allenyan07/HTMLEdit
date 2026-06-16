@@ -54,6 +54,12 @@
   user-select: none;
 }
 
+/* ── Edit Mode ─────────────────────────────────────────── */
+.__proto_editor_edited__ {
+  outline: 1px solid rgba(34, 197, 94, 0.35) !important;
+  background: rgba(34, 197, 94, 0.04) !important;
+}
+
 /* ── Toast ─────────────────────────────────────────────── */
 .__proto_annotator_toast__ {
   position: fixed;

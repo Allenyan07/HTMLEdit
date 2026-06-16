@@ -7,7 +7,8 @@
     "activeTab",
     "storage",
     "scripting",
-    "webNavigation"
+    "webNavigation",
+    "unlimitedStorage"
   ],
   "host_permissions": [
     "file:///*",
@@ -35,6 +36,7 @@
         "content/messaging.js",
         "content/area-selector.js",
         "content/annotator.js",
+        "content/editor.js",
         "content/panel.js",
         "content/content.js"
       ],

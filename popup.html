@@ -8,8 +8,14 @@
   <div class="popup-container">
     <h1 class="popup-title">原型标注工具</h1>
     <div class="popup-status" id="statusText">未注入</div>
-    <button class="popup-btn" id="toggleBtn">开启标注模式</button>
-    <div class="popup-hint" id="hintText">点击扩展图标或使用快捷键切换标注模式</div>
+    <div class="mode-segment" role="group" aria-label="模式切换">
+      <button class="mode-btn" id="offBtn" data-mode="off">关闭</button>
+      <button class="mode-btn" id="editBtn" data-mode="edit">编辑</button>
+      <button class="mode-btn" id="annotateBtn" data-mode="annotate">标注</button>
+    </div>
+    <button class="popup-btn secondary" id="authBtn" hidden>授权原型目录</button>
+    <div class="edit-state" id="editState" hidden>未授权目录</div>
+    <div class="popup-hint" id="hintText">选择模式后在页面中操作</div>
   </div>
   <script src="popup.js"></script>
 </body>
