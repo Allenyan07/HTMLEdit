@@ -16,6 +16,18 @@ const ICON_STATES = {
     32: 'icons/icon_active_32.png',
     48: 'icons/icon_active_48.png',
     128: 'icons/icon_active.png'
+  },
+  EDIT: {
+    16: 'icons/icon_edit_16.png',
+    32: 'icons/icon_edit_32.png',
+    48: 'icons/icon_edit_48.png',
+    128: 'icons/icon_edit.png'
+  },
+  ANNOTATE: {
+    16: 'icons/icon_active_16.png',
+    32: 'icons/icon_active_32.png',
+    48: 'icons/icon_active_48.png',
+    128: 'icons/icon_active.png'
   }
 };
 
@@ -190,6 +202,12 @@ function setIconState(tabId, state) {
   chrome.action.setIcon({ tabId: tabId, path: ICON_STATES[state] }).catch(function() {});
 }
 
+function getIconStateForMode(mode) {
+  if (mode === 'edit') return 'EDIT';
+  if (mode === 'annotate') return 'ANNOTATE';
+  return 'INACTIVE';
+}
+
 function ensureContentScriptsInjected(tabId) {
   return new Promise(function(resolve) {
     chrome.tabs.sendMessage(tabId, { type: 'PING' }, function(response) {
@@ -234,7 +252,7 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
       if (tabId) {
         var editCount = tabStates[tabId] ? (tabStates[tabId].editCount || 0) : 0;
         tabStates[tabId] = { active: active, mode: mode, topLevelUrl: topLevelUrl, editCount: editCount };
-        setIconState(tabId, active ? 'ACTIVE' : 'INACTIVE');
+        setIconState(tabId, getIconStateForMode(mode));
         var storageData = {};
         storageData[getStorageKey(tabId)] = { active: active, mode: mode, topLevelUrl: topLevelUrl, editCount: editCount };
         chrome.storage.local.set(storageData);
@@ -357,7 +375,7 @@ chrome.tabs.onUpdated.addListener(function(tabId, changeInfo) {
   }
   if (changeInfo.status === 'complete') {
     if (tabStates[tabId] && tabStates[tabId].active) {
-      setIconState(tabId, 'ACTIVE');
+      setIconState(tabId, getIconStateForMode(tabStates[tabId].mode || 'annotate'));
       ensureContentScriptsInjected(tabId).then(function() {
         sendMessageToAllFrames(tabId, {
           type: 'MODE_CHANGED',
