@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "原型标注工具",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "在原型页面上直接标注修改意见，支持跨页面汇总和一键定位",
   "permissions": [
     "activeTab",
