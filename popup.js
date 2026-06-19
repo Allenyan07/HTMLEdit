@@ -10,6 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentMode = 'off';
   let editAuthorized = false;
   let showEditAuth = false;
+  let authAction = 'choose';
 
   function openEditDb() {
     return new Promise((resolve, reject) => {
@@ -30,6 +31,34 @@ document.addEventListener('DOMContentLoaded', () => {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
+  }
+
+  async function idbGet(key) {
+    const db = await openEditDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('kv', 'readonly');
+      const request = tx.objectStore('kv').get(key);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  function getPathSegments(fileUrl) {
+    try {
+      const url = new URL(fileUrl);
+      if (url.protocol !== 'file:') return [];
+      return url.pathname.split('/').filter(Boolean).map((part) => decodeURIComponent(part));
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function getAuthorizedRootSegments(fileUrl, rootName) {
+    const segments = getPathSegments(fileUrl);
+    if (!segments.length || !rootName) return null;
+    const index = segments.lastIndexOf(rootName);
+    if (index === -1) return null;
+    return segments.slice(0, index + 1);
   }
 
   function updateModeUI(mode) {
@@ -80,6 +109,7 @@ document.addEventListener('DOMContentLoaded', () => {
         editAuthorized = false;
         editState.textContent = '未授权目录';
         authBtn.textContent = '授权原型目录';
+        authAction = 'choose';
         updateModeUI(currentMode);
         return;
       }
@@ -87,13 +117,22 @@ document.addEventListener('DOMContentLoaded', () => {
       const dir = response.directoryName || '';
       if (editAuthorized) {
         editState.textContent = '目录已授权' + (dir ? '：' + dir : '') + ' · 已保存 ' + (response.count || 0) + ' 处';
-        authBtn.textContent = '重新授权目录';
+        authBtn.textContent = '更换目录';
+        authAction = 'choose';
       } else if (response.needsReauth && dir) {
-        editState.textContent = '目录权限需重新授权：' + dir;
-        authBtn.textContent = '重新授权目录';
+        editState.textContent = response.permission === 'prompt'
+          ? '目录权限需重新确认：' + dir
+          : response.permission === 'root_path_unknown'
+            ? '目录路径需重新授权：' + dir
+            : '目录权限需重新授权：' + dir;
+        authBtn.textContent = response.permission === 'root_path_unknown'
+          ? '更换目录'
+          : '重新确认权限';
+        authAction = response.permission === 'root_path_unknown' ? 'choose' : 'confirm';
       } else {
         editState.textContent = '未授权目录';
         authBtn.textContent = '授权原型目录';
+        authAction = 'choose';
       }
       updateModeUI(currentMode);
     });
@@ -121,6 +160,50 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function authorizeDirectory() {
+    if (authAction === 'confirm') {
+      await confirmDirectoryPermission();
+      return;
+    }
+    await chooseDirectory();
+  }
+
+  async function confirmDirectoryPermission() {
+    try {
+      const existing = await idbGet('editDirectory');
+      if (!existing || !existing.handle) {
+        authAction = 'choose';
+        authBtn.textContent = '授权原型目录';
+        await chooseDirectory();
+        return;
+      }
+      if (!existing.rootPathSegments) {
+        editState.textContent = '目录路径信息缺失，请更换目录';
+        authAction = 'choose';
+        authBtn.textContent = '更换目录';
+        return;
+      }
+
+      const permission = await existing.handle.requestPermission({ mode: 'readwrite' });
+      if (permission !== 'granted') {
+        editAuthorized = false;
+        editState.textContent = '未获得目录写入权限，可更换目录';
+        authAction = 'choose';
+        authBtn.textContent = '更换目录';
+        updateModeUI(currentMode);
+        return;
+      }
+
+      editAuthorized = true;
+      refreshEditState();
+      setMode('edit');
+    } catch (e) {
+      editState.textContent = '权限确认已取消，可更换目录';
+      authAction = 'choose';
+      authBtn.textContent = '更换目录';
+    }
+  }
+
+  async function chooseDirectory() {
     if (!window.showDirectoryPicker) {
       editState.textContent = '当前浏览器不支持目录授权';
       return;
@@ -136,7 +219,16 @@ document.addEventListener('DOMContentLoaded', () => {
         editState.textContent = '未获得目录写入权限';
         return;
       }
-      await idbSet('editDirectory', { handle: handle, name: handle.name });
+      const rootPathSegments = getAuthorizedRootSegments(tabUrl, handle.name);
+      if (!rootPathSegments) {
+        editState.textContent = '当前页面不在授权目录内，请打开目录内 HTML 后重新授权';
+        return;
+      }
+      await idbSet('editDirectory', {
+        handle: handle,
+        name: handle.name,
+        rootPathSegments: rootPathSegments
+      });
       editAuthorized = true;
       refreshEditState();
       setMode('edit');

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "页改笔 HTMLEdit",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "面向 HTML 页面的编辑与标注工具，支持本地页面修改保存、批注和跨页面汇总",
   "permissions": [
     "activeTab",

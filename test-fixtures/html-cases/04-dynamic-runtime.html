@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>04 运行时渲染页</title>
+  <style>
+    body {
+      margin: 0;
+      font: 14px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: #1f2328;
+      background: #fff;
+    }
+    main { max-width: 860px; margin: 0 auto; padding: 32px 24px; }
+    .card {
+      margin: 14px 0;
+      padding: 14px;
+      border: 1px solid #d8dee4;
+      border-radius: 8px;
+      background: #f6f8fa;
+    }
+    .runtime-only {
+      border-color: #f5a524;
+      background: rgba(245,165,36,.08);
+    }
+    button { padding: 8px 12px; border-radius: 6px; border: 1px solid #d8dee4; background: #fff; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>运行时 DOM 保存风险测试</h1>
+    <p id="sourceText">这段文本存在于原始 HTML 中，可以尝试编辑。</p>
+    <div id="app"></div>
+    <button type="button" id="addTemp">添加临时运行时节点</button>
+    <p>保存后检查源文件：运行时生成的卡片是否被错误写入 HTML。</p>
+  </main>
+  <script>
+    const app = document.getElementById('app');
+    let counter = 1;
+    function render() {
+      app.innerHTML = `
+        <div class="card runtime-only">
+          <strong>运行时渲染卡片 ${counter}</strong>
+          <p>这段内容由 JavaScript 在页面加载后生成，不应该被固化到源 HTML。</p>
+        </div>
+      `;
+    }
+    document.getElementById('addTemp').addEventListener('click', () => {
+      counter += 1;
+      render();
+    });
+    render();
+  </script>
+
+
+</body></html>

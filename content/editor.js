@@ -1,12 +1,16 @@
 const Editor = (() => {
   const EDITED_CLASS = '__proto_editor_edited__';
   const TARGET_SELECTOR = 'input, textarea, button, a, label, span, p, div, h1, h2, h3, h4, h5, h6, td, th, li';
+  const DOUBLE_CLICK_PASSTHROUGH_SELECTOR = 'input, textarea, select, option, video, audio, canvas, iframe, a[href], button, [contenteditable], [draggable="true"], [role="button"], [role="gridcell"], [onclick]';
 
   let isActive = false;
   let hoveredElement = null;
   let highlightOverlay = null;
   let currentCard = null;
   let editedCount = 0;
+  let lastUndo = null;
+  let undoToast = null;
+  let undoToastTimer = null;
 
   function activate() {
     if (isActive) return;
@@ -26,6 +30,7 @@ const Editor = (() => {
     document.removeEventListener('dblclick', onDoubleClick, true);
     removeHighlight();
     closeCard();
+    clearUndoToast();
     clearEditedMarks();
   }
 
@@ -33,7 +38,7 @@ const Editor = (() => {
     if (!isActive) return;
     if (isToolElement(e.target)) return;
 
-    const target = findEditableTarget(e.target);
+    const target = findEditableTarget(e.target, { force: true });
     if (!target || target === hoveredElement) return;
 
     removeHighlight();
@@ -56,7 +61,7 @@ const Editor = (() => {
     if (!e.shiftKey) return;
     if (isToolElement(e.target)) return;
 
-    const target = findEditableTarget(e.target);
+    const target = findEditableTarget(e.target, { force: true });
     if (!target) return;
 
     e.preventDefault();
@@ -70,7 +75,9 @@ const Editor = (() => {
     if (!isActive) return;
     if (isToolElement(e.target)) return;
 
-    const target = findEditableTarget(e.target);
+    if (shouldPassThroughDoubleClick(e.target)) return;
+
+    const target = findEditableTarget(e.target, { force: false });
     if (!target) return;
 
     e.preventDefault();
@@ -80,21 +87,54 @@ const Editor = (() => {
     showCard(target, { left: e.clientX, top: e.clientY });
   }
 
-  function findEditableTarget(startEl) {
+  function findEditableTarget(startEl, options) {
     if (!startEl || startEl.nodeType !== Node.ELEMENT_NODE) return null;
+    options = options || {};
 
     let el = startEl.closest(TARGET_SELECTOR);
     while (el && el !== document.body && el !== document.documentElement) {
-      if (!isToolElement(el) && getEditableText(el)) return el;
+      if (!isToolElement(el) && getEditableText(el)) {
+        if (!options.force && hasInteractiveAncestor(el)) return null;
+        return el;
+      }
       el = el.parentElement;
     }
     return null;
   }
 
+  function shouldPassThroughDoubleClick(startEl) {
+    if (!startEl || startEl.nodeType !== Node.ELEMENT_NODE) return true;
+    if (startEl.closest(DOUBLE_CLICK_PASSTHROUGH_SELECTOR)) return true;
+    return false;
+  }
+
+  function hasInteractiveAncestor(el) {
+    let current = el;
+    while (current && current !== document.body && current !== document.documentElement) {
+      if (current !== el && current.matches && current.matches(DOUBLE_CLICK_PASSTHROUGH_SELECTOR)) return true;
+      if (current !== el && hasDataAttributes(current)) return true;
+      current = current.parentElement;
+    }
+    return false;
+  }
+
+  function hasDataAttributes(el) {
+    if (!el || !el.attributes) return false;
+    for (const attr of el.attributes) {
+      if (attr.name.indexOf('data-') === 0) return true;
+    }
+    return false;
+  }
+
   function getEditableText(el) {
     if (!el) return '';
-    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
-      return (el.value || el.getAttribute('value') || el.placeholder || '').trim();
+    if (el.tagName === 'INPUT') {
+      const meta = getEditTargetMeta(el);
+      return (meta.value || '').trim();
+    }
+    if (el.tagName === 'TEXTAREA') {
+      const meta = getEditTargetMeta(el);
+      return (meta.value || '').trim();
     }
     if (el.tagName === 'SELECT') {
       return '';
@@ -117,15 +157,48 @@ const Editor = (() => {
     return text.trim();
   }
 
-  function applyText(el, nextText) {
-    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
-      if (el.value || el.hasAttribute('value')) {
-        el.value = nextText;
-        el.setAttribute('value', nextText);
-      } else {
-        el.placeholder = nextText;
-        el.setAttribute('placeholder', nextText);
+  function getEditTargetMeta(el) {
+    if (el.tagName === 'INPUT') {
+      if (el.hasAttribute('value') || el.value) {
+        return { kind: 'input-value', label: '输入值 value', value: el.value || el.getAttribute('value') || '' };
       }
+      if (el.hasAttribute('placeholder') || el.placeholder) {
+        return { kind: 'placeholder', label: '占位提示 placeholder', value: el.placeholder || el.getAttribute('placeholder') || '' };
+      }
+      return { kind: 'input-value', label: '输入值 value', value: el.value || '' };
+    }
+
+    if (el.tagName === 'TEXTAREA') {
+      const initialText = el.textContent || el.defaultValue || '';
+      if (initialText.trim()) {
+        return { kind: 'textarea-text', label: 'textarea 初始内容', value: initialText };
+      }
+      if (el.hasAttribute('placeholder') || el.placeholder) {
+        return { kind: 'placeholder', label: '占位提示 placeholder', value: el.placeholder || el.getAttribute('placeholder') || '' };
+      }
+      return { kind: 'textarea-text', label: 'textarea 初始内容', value: initialText };
+    }
+
+    return { kind: 'text', label: '文本内容', value: getDirectText(el) || (el.textContent || '') };
+  }
+
+  function applyText(el, nextText, targetMeta) {
+    targetMeta = targetMeta || getEditTargetMeta(el);
+    if (targetMeta.kind === 'input-value') {
+      el.value = nextText;
+      el.setAttribute('value', nextText);
+      return;
+    }
+    if (targetMeta.kind === 'placeholder') {
+      el.placeholder = nextText;
+      el.setAttribute('placeholder', nextText);
+      return;
+    }
+    if (targetMeta.kind === 'textarea-text') {
+      el.value = nextText;
+      el.defaultValue = nextText;
+      el.textContent = nextText;
+      el.removeAttribute('value');
       return;
     }
 
@@ -174,8 +247,10 @@ const Editor = (() => {
   function showCard(targetEl, position) {
     closeCard();
 
-    const originalText = getEditableText(targetEl);
+    const targetMeta = getEditTargetMeta(targetEl);
+    const originalText = (targetMeta.value || '').trim();
     const originalStyle = getTextStyle(targetEl);
+    const sourceLocator = getSourceLocator(targetEl);
     const container = document.createElement('div');
     container.id = '__proto_editor_card__';
     container.__proto_annotator = true;
@@ -187,11 +262,11 @@ const Editor = (() => {
 
     const card = document.createElement('div');
     card.className = 'card';
-    card.innerHTML = buildCardHTML(originalText, originalStyle);
+    card.innerHTML = buildCardHTML(originalText, originalStyle, targetMeta);
     shadow.appendChild(card);
     document.body.appendChild(container);
 
-    currentCard = { container, shadow, card, targetEl, originalText, originalStyle };
+    currentCard = { container, shadow, card, targetEl, targetMeta, sourceLocator, originalText, originalStyle };
     positionCard(card, position);
     bindCardEvents();
     requestAnimationFrame(() => card.classList.add('card-visible'));
@@ -210,9 +285,9 @@ const Editor = (() => {
     card.style.top = top + 'px';
   }
 
-  function buildCardHTML(originalText, originalStyle) {
+  function buildCardHTML(originalText, originalStyle, targetMeta) {
     return '' +
-      '<div class="type-indicator">编辑文本</div>' +
+      '<div class="type-indicator">编辑：' + escapeHtml(targetMeta.label) + '</div>' +
       '<div class="card-body">' +
       '  <label>原文本</label>' +
       '  <div class="original-text">' + escapeHtml(originalText) + '</div>' +
@@ -221,7 +296,7 @@ const Editor = (() => {
       '  <div class="style-grid">' +
       '    <div class="style-field">' +
       '      <label>字号</label>' +
-      '      <div class="size-control"><input type="number" class="font-size-input" min="8" max="96" step="1" value="' + escapeHtml(originalStyle.size) + '" /><span>px</span></div>' +
+      '      <div class="size-control"><input type="number" class="font-size-input" min="1" max="300" step="1" value="' + escapeHtml(originalStyle.size) + '" /><span>px</span></div>' +
       '    </div>' +
       '    <div class="style-field">' +
       '      <label>颜色</label>' +
@@ -250,8 +325,15 @@ const Editor = (() => {
     shadow.querySelector('.btn-confirm').addEventListener('click', confirmEdit);
     shadow.querySelectorAll('.toggle-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
+        btn.dataset.dirty = 'true';
         btn.classList.toggle('active');
       });
+    });
+    shadow.querySelector('.font-size-input').addEventListener('input', (event) => {
+      event.currentTarget.dataset.dirty = 'true';
+    });
+    shadow.querySelector('.font-color-input').addEventListener('input', (event) => {
+      event.currentTarget.dataset.dirty = 'true';
     });
     const input = shadow.querySelector('.new-text-input');
     input.focus();
@@ -265,9 +347,9 @@ const Editor = (() => {
     const error = currentCard.shadow.querySelector('.error');
     const confirmBtn = currentCard.shadow.querySelector('.btn-confirm');
     const nextText = input.value.trim();
-    const nextStyle = getStyleFromCard(currentCard.shadow);
+    const stylePatch = getStylePatchFromCard(currentCard.shadow);
     const textChanged = nextText !== currentCard.originalText;
-    const styleChanged = isStyleChanged(nextStyle, currentCard.originalStyle);
+    const styleChanged = Object.keys(stylePatch).length > 0;
 
     if (!nextText) {
       error.textContent = '修改文本不能为空';
@@ -278,20 +360,29 @@ const Editor = (() => {
       return;
     }
 
-    const snapshot = captureElementState(currentCard.targetEl);
     confirmBtn.disabled = true;
     confirmBtn.textContent = '保存中...';
     error.textContent = '';
 
-    if (textChanged) applyText(currentCard.targetEl, nextText);
-    if (styleChanged) applyTextStyle(currentCard.targetEl, nextStyle);
+    const patchedSource = await buildPatchedSource(currentCard, nextText, textChanged, stylePatch);
+    if (!patchedSource.success) {
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = '确认修改';
+      error.textContent = formatSaveError(patchedSource.error);
+      return;
+    }
+
+    const snapshot = captureElementState(currentCard.targetEl);
+
+    if (textChanged) applyText(currentCard.targetEl, nextText, currentCard.targetMeta);
+    if (styleChanged) applyTextStyle(currentCard.targetEl, stylePatch);
     markEdited(currentCard.targetEl);
 
     const response = await Messaging.sendToBackground({
       type: 'SAVE_EDITED_HTML',
       fileUrl: window.location.href,
       pageName: ProtoStorage.getPageName(),
-      html: buildCleanHTML()
+      html: patchedSource.html
     });
 
     if (!response || !response.success) {
@@ -303,11 +394,42 @@ const Editor = (() => {
       return;
     }
 
+    syncEditableLocalStorage(patchedSource.localStoragePatch);
+
     editedCount += 1;
-    Messaging.sendToBackground({ type: 'EDIT_STATE_CHANGED', count: editedCount });
+    Messaging.sendToBackground({ type: 'EDIT_STATE_CHANGED', delta: 1 });
     const pageName = ProtoStorage.getPageName();
+    lastUndo = {
+      fileUrl: window.location.href,
+      pageName: pageName,
+      previousHtml: patchedSource.previousHtml,
+      previousLocalStoragePatch: patchedSource.previousLocalStoragePatch,
+      targetEl: currentCard.targetEl,
+      snapshot: snapshot
+    };
     closeCard();
-    Annotator.showToast('已修改并保存到 ' + pageName);
+    showUndoToast('已修改并保存到 ' + pageName);
+  }
+
+  function syncEditableLocalStorage(patch) {
+    if (!patch || !patch.editId) return;
+    try {
+      for (let i = 0; i < localStorage.length; i += 1) {
+        const key = localStorage.key(i);
+        const raw = localStorage.getItem(key);
+        if (!raw || raw[0] !== '{') continue;
+        let data;
+        try {
+          data = JSON.parse(raw);
+        } catch (e) {
+          continue;
+        }
+        if (!data || typeof data !== 'object' || Array.isArray(data)) continue;
+        if (!Object.prototype.hasOwnProperty.call(data, patch.editId)) continue;
+        data[patch.editId] = patch.html;
+        localStorage.setItem(key, JSON.stringify(data));
+      }
+    } catch (e) {}
   }
 
   function captureElementState(el) {
@@ -340,30 +462,258 @@ const Editor = (() => {
     };
   }
 
-  function getStyleFromCard(shadow) {
+  function getStylePatchFromCard(shadow) {
     const sizeInput = shadow.querySelector('.font-size-input');
     const colorInput = shadow.querySelector('.font-color-input');
-    const size = Math.min(96, Math.max(8, parseInt(sizeInput.value, 10) || 14));
+    const boldToggle = shadow.querySelector('.bold-toggle');
+    const italicToggle = shadow.querySelector('.italic-toggle');
+    const size = Math.min(300, Math.max(1, parseInt(sizeInput.value, 10) || 14));
+    const patch = {};
+    if (sizeInput.dataset.dirty === 'true' && String(size) !== currentCard.originalStyle.size) {
+      patch.fontSize = String(size) + 'px';
+    }
+    if (colorInput.dataset.dirty === 'true' && (colorInput.value || '').toLowerCase() !== currentCard.originalStyle.color.toLowerCase()) {
+      patch.color = colorInput.value || '#1f2328';
+    }
+    const bold = boldToggle.classList.contains('active');
+    if (boldToggle.dataset.dirty === 'true' && bold !== currentCard.originalStyle.bold) {
+      patch.fontWeight = bold ? '700' : '400';
+    }
+    const italic = italicToggle.classList.contains('active');
+    if (italicToggle.dataset.dirty === 'true' && italic !== currentCard.originalStyle.italic) {
+      patch.fontStyle = italic ? 'italic' : 'normal';
+    }
+    return patch;
+  }
+
+  function applyTextStyle(el, stylePatch) {
+    Object.keys(stylePatch).forEach((name) => {
+      el.style[name] = stylePatch[name];
+    });
+  }
+
+  async function buildPatchedSource(card, nextText, textChanged, stylePatch) {
+    const source = await Messaging.sendToBackground({
+      type: 'READ_EDIT_SOURCE',
+      fileUrl: window.location.href
+    });
+    if (!source || !source.success) return source || { success: false, error: { code: 'READ_FAILED' } };
+
+    const parser = new DOMParser();
+    const sourceDoc = parser.parseFromString(source.html, 'text/html');
+    const sourceEl = findSafeSourceElement(sourceDoc, card);
+    if (!sourceEl) {
+      return { success: false, error: { code: 'SOURCE_TARGET_NOT_FOUND' } };
+    }
+
+    const previousLocalStoragePatch = getLocalStoragePatch(sourceDoc, card.sourceLocator);
+    if (textChanged) applyTextToSourceElement(sourceEl, nextText, card.targetMeta);
+    if (Object.keys(stylePatch).length) applyTextStyle(sourceEl, stylePatch);
+
     return {
-      size: String(size),
-      color: colorInput.value || '#1f2328',
-      bold: shadow.querySelector('.bold-toggle').classList.contains('active'),
-      italic: shadow.querySelector('.italic-toggle').classList.contains('active')
+      success: true,
+      html: serializeSourceDocument(sourceDoc),
+      previousHtml: source.html,
+      previousLocalStoragePatch: previousLocalStoragePatch,
+      localStoragePatch: getLocalStoragePatch(sourceDoc, card.sourceLocator)
     };
   }
 
-  function isStyleChanged(nextStyle, originalStyle) {
-    return nextStyle.size !== originalStyle.size
-      || nextStyle.color.toLowerCase() !== originalStyle.color.toLowerCase()
-      || nextStyle.bold !== originalStyle.bold
-      || nextStyle.italic !== originalStyle.italic;
+  function getLocalStoragePatch(doc, locator) {
+    const stableRoot = findSourceStableRoot(doc, locator);
+    if (!stableRoot) return null;
+    const editId = stableRoot.getAttribute('data-edit-id');
+    if (!editId) return null;
+    return {
+      editId: editId,
+      html: stableRoot.innerHTML
+    };
   }
 
-  function applyTextStyle(el, style) {
-    el.style.fontSize = style.size + 'px';
-    el.style.color = style.color;
-    el.style.fontWeight = style.bold ? '700' : '400';
-    el.style.fontStyle = style.italic ? 'italic' : 'normal';
+  function findSourceStableRoot(doc, locator) {
+    if (!locator || (locator.type !== 'attr' && locator.type !== 'attrPath')) return null;
+    const selector = '[' + locator.name + '="' + cssEscape(locator.value) + '"]';
+    const matches = Array.from(doc.querySelectorAll(selector));
+    return matches.length === 1 ? matches[0] : null;
+  }
+
+  function getSourceLocator(el) {
+    const id = el.getAttribute('id');
+    if (id && document.querySelectorAll('#' + cssEscape(id)).length === 1) {
+      return { type: 'id', value: id };
+    }
+
+    const stableEditRoot = findStableEditRoot(el);
+    if (stableEditRoot) {
+      const editId = stableEditRoot.getAttribute('data-edit-id');
+      if (stableEditRoot === el) {
+        return { type: 'attr', name: 'data-edit-id', value: editId, stable: true };
+      }
+      return {
+        type: 'attrPath',
+        name: 'data-edit-id',
+        value: editId,
+        childPath: getElementPathBetween(stableEditRoot, el),
+        stable: true
+      };
+    }
+    return { type: 'path', value: getElementPath(el) };
+  }
+
+  function findStableEditRoot(el) {
+    let current = el;
+    while (current && current !== document.body && current !== document.documentElement) {
+      const editId = current.getAttribute && current.getAttribute('data-edit-id');
+      if (editId && document.querySelectorAll('[data-edit-id="' + cssEscape(editId) + '"]').length === 1) {
+        return current;
+      }
+      current = current.parentElement;
+    }
+    return null;
+  }
+
+  function findSourceElement(doc, locator) {
+    if (!locator) return null;
+    if (locator.type === 'id') {
+      return doc.getElementById(locator.value);
+    }
+    if (locator.type === 'path') {
+      return findElementByPath(doc, locator.value);
+    }
+    if (locator.type === 'attr') {
+      const selector = '[' + locator.name + '="' + cssEscape(locator.value) + '"]';
+      const matches = Array.from(doc.querySelectorAll(selector));
+      return matches.length === 1 ? matches[0] : null;
+    }
+    if (locator.type === 'attrPath') {
+      const selector = '[' + locator.name + '="' + cssEscape(locator.value) + '"]';
+      const matches = Array.from(doc.querySelectorAll(selector));
+      if (matches.length !== 1) return null;
+      return findElementByRelativePath(matches[0], locator.childPath);
+    }
+    return null;
+  }
+
+  function findSafeSourceElement(doc, card) {
+    const direct = findSourceElement(doc, card.sourceLocator);
+    if (direct && card.sourceLocator && card.sourceLocator.stable && direct.tagName === card.targetEl.tagName) return direct;
+    if (direct && sourceElementMatchesCard(direct, card)) return direct;
+
+    const fallback = findSourceElementByOriginalText(doc, card);
+    if (fallback) return fallback;
+    return null;
+  }
+
+  function findSourceElementByOriginalText(doc, card) {
+    const tagName = card.targetEl.tagName.toLowerCase();
+    const candidates = Array.from(doc.querySelectorAll(tagName)).filter((el) => sourceElementMatchesCard(el, card));
+    return candidates.length === 1 ? candidates[0] : null;
+  }
+
+  function sourceElementMatchesCard(el, card) {
+    return getSourceEditableText(el, card.targetMeta.kind).trim() === card.originalText;
+  }
+
+  function getSourceEditableText(el, kind) {
+    if (kind === 'input-value') return el.getAttribute('value') || '';
+    if (kind === 'placeholder') return el.getAttribute('placeholder') || '';
+    if (kind === 'textarea-text') return el.textContent || '';
+
+    const textNodes = Array.from(el.childNodes).filter((node) => node.nodeType === Node.TEXT_NODE);
+    const primary = textNodes.find((node) => node.textContent.trim());
+    return primary ? primary.textContent : (el.textContent || '');
+  }
+
+  function getElementPath(el) {
+    const path = [];
+    let current = el;
+    while (current && current.nodeType === Node.ELEMENT_NODE) {
+      const tag = current.tagName.toLowerCase();
+      let index = 0;
+      let sibling = current.previousElementSibling;
+      while (sibling) {
+        if (sibling.tagName.toLowerCase() === tag) index += 1;
+        sibling = sibling.previousElementSibling;
+      }
+      path.unshift({ tag: tag, index: index });
+      if (current === document.documentElement) break;
+      current = current.parentElement;
+    }
+    return path;
+  }
+
+  function getElementPathBetween(root, el) {
+    const path = [];
+    let current = el;
+    while (current && current !== root && current.nodeType === Node.ELEMENT_NODE) {
+      const tag = current.tagName.toLowerCase();
+      let index = 0;
+      let sibling = current.previousElementSibling;
+      while (sibling) {
+        if (sibling.tagName.toLowerCase() === tag) index += 1;
+        sibling = sibling.previousElementSibling;
+      }
+      path.unshift({ tag: tag, index: index });
+      current = current.parentElement;
+    }
+    return current === root ? path : [];
+  }
+
+  function findElementByRelativePath(root, path) {
+    let current = root;
+    for (const item of path || []) {
+      const matches = Array.from(current.children).filter((child) => child.tagName.toLowerCase() === item.tag);
+      current = matches[item.index];
+      if (!current) return null;
+    }
+    return current;
+  }
+
+  function findElementByPath(doc, path) {
+    if (!path || !path.length) return null;
+    let current = doc.documentElement;
+    if (!current || current.tagName.toLowerCase() !== path[0].tag) return null;
+    for (let i = 1; i < path.length; i += 1) {
+      const item = path[i];
+      const matches = Array.from(current.children).filter((child) => child.tagName.toLowerCase() === item.tag);
+      current = matches[item.index];
+      if (!current) return null;
+    }
+    return current;
+  }
+
+  function applyTextToSourceElement(el, nextText, targetMeta) {
+    if (targetMeta.kind === 'input-value') {
+      el.setAttribute('value', nextText);
+      return;
+    }
+    if (targetMeta.kind === 'placeholder') {
+      el.setAttribute('placeholder', nextText);
+      return;
+    }
+    if (targetMeta.kind === 'textarea-text') {
+      el.textContent = nextText;
+      el.removeAttribute('value');
+      return;
+    }
+
+    const textNodes = Array.from(el.childNodes).filter((node) => node.nodeType === Node.TEXT_NODE);
+    const primary = textNodes.find((node) => node.textContent.trim());
+    if (primary) {
+      primary.textContent = preserveOuterWhitespace(primary.textContent, nextText);
+    } else {
+      el.textContent = nextText;
+    }
+  }
+
+  function serializeSourceDocument(doc) {
+    const doctype = doc.doctype ? '<!DOCTYPE ' + doc.doctype.name + '>\n' : '<!DOCTYPE html>\n';
+    return doctype + doc.documentElement.outerHTML;
+  }
+
+  function cssEscape(value) {
+    if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(value);
+    return String(value).replace(/["\\#.;:[\]>+~*^$|=,\s]/g, '\\$&');
   }
 
   function rgbToHex(value) {
@@ -393,18 +743,6 @@ const Editor = (() => {
     });
   }
 
-  function buildCleanHTML() {
-    const clone = document.documentElement.cloneNode(true);
-    clone.querySelectorAll('[id^="__proto_annotator"], [id^="__proto_editor"], .__proto_annotator_badge__, .__proto_annotator_area_overlay__, .__proto_annotator_toast__, .__proto_editor_highlight__').forEach((el) => {
-      el.remove();
-    });
-    clone.querySelectorAll('.' + EDITED_CLASS).forEach((el) => {
-      el.classList.remove(EDITED_CLASS);
-      if (!el.getAttribute('class')) el.removeAttribute('class');
-    });
-    return '<!DOCTYPE html>\n' + clone.outerHTML;
-  }
-
   function closeCard() {
     if (currentCard) {
       currentCard.container.remove();
@@ -414,19 +752,121 @@ const Editor = (() => {
 
   function handleKeyDown(e) {
     if (!isActive) return false;
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !currentCard && lastUndo) {
+      e.preventDefault();
+      undoLastEdit();
+      return true;
+    }
     if (e.key === 'Escape') {
       closeCard();
       removeHighlight();
       return true;
     }
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      if (currentCard) {
-        e.preventDefault();
+    if (e.key === 'Enter' && currentCard) {
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey) {
+        insertTextareaNewline(currentCard.shadow.querySelector('.new-text-input'));
+      } else {
         confirmEdit();
-        return true;
       }
+      return true;
     }
     return false;
+  }
+
+  function insertTextareaNewline(textarea) {
+    if (!textarea) return;
+    const start = textarea.selectionStart ?? textarea.value.length;
+    const end = textarea.selectionEnd ?? textarea.value.length;
+    const value = textarea.value;
+    textarea.value = value.slice(0, start) + '\n' + value.slice(end);
+    textarea.selectionStart = start + 1;
+    textarea.selectionEnd = start + 1;
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  async function undoLastEdit() {
+    if (!lastUndo) return;
+    const undo = lastUndo;
+    lastUndo = null;
+    clearUndoToast();
+
+    const response = await Messaging.sendToBackground({
+      type: 'SAVE_EDITED_HTML',
+      fileUrl: undo.fileUrl,
+      pageName: undo.pageName,
+      html: undo.previousHtml
+    });
+
+    if (!response || !response.success) {
+      lastUndo = undo;
+      showUndoToast(formatSaveError(response && response.error), true);
+      return;
+    }
+
+    if (undo.targetEl && undo.targetEl.isConnected) {
+      restoreElementState(undo.targetEl, undo.snapshot);
+    }
+    syncEditableLocalStorage(undo.previousLocalStoragePatch);
+    editedCount = Math.max(0, editedCount - 1);
+    Messaging.sendToBackground({ type: 'EDIT_STATE_CHANGED', delta: -1 });
+    showUndoToast('已撤销上一次修改', false, 2000);
+  }
+
+  function showUndoToast(message, keepUndo, duration) {
+    clearUndoToast();
+
+    const el = document.createElement('div');
+    el.className = '__proto_editor_undo_toast__';
+    el.__proto_annotator = true;
+    el.style.cssText =
+      'position:fixed;right:18px;bottom:18px;z-index:2147483647;' +
+      'display:flex;align-items:center;gap:12px;max-width:360px;' +
+      'padding:10px 12px;border-radius:8px;background:#1f2328;color:#fff;' +
+      'box-shadow:0 8px 24px rgba(0,0,0,.18);font:13px/1.4 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;' +
+      'opacity:1;transition:opacity .18s ease;pointer-events:auto;';
+
+    const text = document.createElement('span');
+    text.textContent = message;
+    text.style.cssText = 'min-width:0;word-break:break-word;';
+    el.appendChild(text);
+
+    if (keepUndo !== false && lastUndo) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = '撤销';
+      btn.style.cssText =
+        'height:26px;padding:0 10px;border:0;border-radius:6px;background:#22c55e;color:#fff;' +
+        'font:12px/26px -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;font-weight:600;cursor:pointer;flex-shrink:0;';
+      btn.addEventListener('click', () => {
+        undoLastEdit();
+      });
+      el.appendChild(btn);
+    }
+
+    document.body.appendChild(el);
+
+    undoToast = el;
+    const expiresUndo = keepUndo !== false;
+    undoToastTimer = setTimeout(() => {
+      if (expiresUndo) lastUndo = null;
+      clearUndoToast();
+    }, duration || 10000);
+  }
+
+  function clearUndoToast() {
+    if (undoToastTimer) {
+      clearTimeout(undoToastTimer);
+      undoToastTimer = null;
+    }
+    if (undoToast) {
+      const el = undoToast;
+      undoToast = null;
+      el.style.opacity = '0';
+      setTimeout(() => {
+        if (el.parentNode) el.remove();
+      }, 180);
+    }
   }
 
   function getEditState() {
@@ -436,9 +876,14 @@ const Editor = (() => {
   function formatSaveError(error) {
     const code = error && error.code;
     if (code === 'NO_DIRECTORY') return '尚未授权原型目录，请在扩展弹窗中授权后重试';
-    if (code === 'PERMISSION_DENIED') return '写入权限已失效，请在扩展弹窗中重新授权';
+    if (code === 'DIRECTORY_REAUTH_REQUIRED') return '目录路径信息缺失，请在扩展弹窗中重新授权';
+    if (code === 'PERMISSION_PROMPT_REQUIRED') return '目录权限需要重新确认，请在扩展弹窗中重新授权';
+    if (code === 'PERMISSION_DENIED') return '目录写入权限被拒绝，请在扩展弹窗中重新授权';
     if (code === 'OUTSIDE_DIRECTORY') return '当前文件不在已授权目录内';
     if (code === 'FILE_NOT_FOUND') return '找不到当前页面对应的 HTML 文件';
+    if (code === 'READ_FAILED') return '读取源 HTML 失败，请检查文件是否可访问';
+    if (code === 'WRITE_FAILED') return '写入 HTML 失败，请检查文件是否被占用或不可写';
+    if (code === 'SOURCE_TARGET_NOT_FOUND') return '无法在源 HTML 中定位当前元素，请刷新页面后重试';
     if (code === 'UNSUPPORTED') return '当前浏览器不支持目录写入能力';
     return '保存失败，请重新授权目录后重试';
   }

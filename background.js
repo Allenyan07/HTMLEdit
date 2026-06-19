@@ -84,8 +84,8 @@ async function queryEditPermission(handle) {
   return handle.queryPermission({ mode: 'readwrite' });
 }
 
-function buildFileError(code, message) {
-  return { success: false, error: { code: code, message: message || code } };
+function buildFileError(code, message, detail) {
+  return { success: false, error: { code: code, message: message || code, detail: detail || '' } };
 }
 
 function getPathSegments(fileUrl) {
@@ -100,14 +100,24 @@ function getPathSegments(fileUrl) {
   }
 }
 
-function getRelativeSegments(fileUrl, rootName) {
-  const segments = getPathSegments(fileUrl);
-  if (!segments.length) return [];
-  const index = segments.lastIndexOf(rootName);
-  if (index !== -1 && index < segments.length - 1) {
-    return segments.slice(index + 1);
+function hasRootPathSegments(data) {
+  return !!(data && Array.isArray(data.rootPathSegments) && data.rootPathSegments.length);
+}
+
+function startsWithSegments(segments, prefix) {
+  if (!segments || !prefix || segments.length <= prefix.length) return false;
+  for (let i = 0; i < prefix.length; i += 1) {
+    if (segments[i] !== prefix[i]) return false;
   }
-  return [segments[segments.length - 1]];
+  return true;
+}
+
+function getRelativeSegments(fileUrl, data) {
+  const segments = getPathSegments(fileUrl);
+  if (!segments.length) return null;
+  if (!hasRootPathSegments(data)) throw new Error('DIRECTORY_REAUTH_REQUIRED');
+  if (!startsWithSegments(segments, data.rootPathSegments)) return null;
+  return segments.slice(data.rootPathSegments.length);
 }
 
 async function getFileHandleBySegments(rootHandle, segments) {
@@ -119,69 +129,77 @@ async function getFileHandleBySegments(rootHandle, segments) {
   return dir.getFileHandle(segments[segments.length - 1]);
 }
 
-async function findFileByName(rootHandle, fileName, matches) {
-  matches = matches || [];
-  if (matches.length > 1) return matches;
-  for await (const entry of rootHandle.values()) {
-    if (entry.kind === 'file' && entry.name === fileName) {
-      matches.push(entry);
-      if (matches.length > 1) return matches;
-    } else if (entry.kind === 'directory') {
-      await findFileByName(entry, fileName, matches);
-      if (matches.length > 1) return matches;
-    }
+async function resolveFileHandle(rootHandle, data, fileUrl) {
+  const relativeSegments = getRelativeSegments(fileUrl, data);
+  if (!relativeSegments) {
+    throw new Error('OUTSIDE_DIRECTORY');
   }
-  return matches;
-}
-
-async function resolveFileHandle(rootHandle, rootName, fileUrl) {
-  const relativeSegments = getRelativeSegments(fileUrl, rootName);
   try {
     const handle = await getFileHandleBySegments(rootHandle, relativeSegments);
     if (handle) return handle;
   } catch (e) {}
-
-  const allSegments = getPathSegments(fileUrl);
-  const fileName = allSegments[allSegments.length - 1];
-  if (!fileName) return null;
-  const matches = await findFileByName(rootHandle, fileName);
-  if (matches.length === 1) return matches[0];
-  if (matches.length > 1) throw new Error('AMBIGUOUS_FILE');
   return null;
 }
 
-async function saveEditedHtml(message) {
+function buildPermissionError(permission) {
+  if (permission === 'prompt') {
+    return buildFileError('PERMISSION_PROMPT_REQUIRED', 'Directory write permission needs to be confirmed again');
+  }
+  return buildFileError('PERMISSION_DENIED', 'Directory write permission is not granted');
+}
+
+async function getWritableFileHandle(fileUrl) {
   const data = await getEditDirectoryData();
   if (!data || !data.handle) {
-    return buildFileError('NO_DIRECTORY', 'No prototype directory has been authorized');
+    return { error: buildFileError('NO_DIRECTORY', 'No prototype directory has been authorized') };
   }
 
   const permission = await queryEditPermission(data.handle);
   if (permission !== 'granted') {
-    return buildFileError('PERMISSION_DENIED', 'Directory write permission is not granted');
+    return { error: buildPermissionError(permission) };
   }
 
-  let fileHandle;
   try {
-    fileHandle = await resolveFileHandle(data.handle, data.name, message.fileUrl);
-  } catch (e) {
-    if (e.message === 'AMBIGUOUS_FILE') {
-      return buildFileError('OUTSIDE_DIRECTORY', 'Multiple files with the same name were found');
+    const fileHandle = await resolveFileHandle(data.handle, data, fileUrl);
+    if (!fileHandle) {
+      return { error: buildFileError('FILE_NOT_FOUND', 'Could not find the HTML file inside the authorized directory') };
     }
-    return buildFileError('FILE_NOT_FOUND', e.message);
+    return { fileHandle: fileHandle };
+  } catch (e) {
+    if (e.message === 'DIRECTORY_REAUTH_REQUIRED') {
+      return { error: buildFileError('DIRECTORY_REAUTH_REQUIRED', 'Directory path needs to be authorized again') };
+    }
+    if (e.message === 'OUTSIDE_DIRECTORY') {
+      return { error: buildFileError('OUTSIDE_DIRECTORY', 'The current file is outside the authorized directory') };
+    }
+    return { error: buildFileError('FILE_NOT_FOUND', e.message) };
   }
+}
 
-  if (!fileHandle) {
-    return buildFileError('FILE_NOT_FOUND', 'Could not find the HTML file inside the authorized directory');
-  }
+async function readEditSource(fileUrl) {
+  const result = await getWritableFileHandle(fileUrl);
+  if (result.error) return result.error;
 
   try {
-    const writable = await fileHandle.createWritable();
+    const file = await result.fileHandle.getFile();
+    const html = await file.text();
+    return { success: true, html: html };
+  } catch (e) {
+    return buildFileError('READ_FAILED', 'Could not read the HTML file', e.message);
+  }
+}
+
+async function saveEditedHtml(message) {
+  const result = await getWritableFileHandle(message.fileUrl);
+  if (result.error) return result.error;
+
+  try {
+    const writable = await result.fileHandle.createWritable();
     await writable.write(message.html);
     await writable.close();
     return { success: true, pageName: message.pageName };
   } catch (e) {
-    return buildFileError('PERMISSION_DENIED', e.message);
+    return buildFileError('WRITE_FAILED', 'Could not write the HTML file', e.message);
   }
 }
 
@@ -191,9 +209,11 @@ async function getEditAuthState() {
     return { authorized: false, directoryName: '' };
   }
   const permission = await queryEditPermission(data.handle);
+  const hasRootPath = hasRootPathSegments(data);
   return {
-    authorized: permission === 'granted',
-    needsReauth: permission !== 'granted',
+    authorized: permission === 'granted' && hasRootPath,
+    needsReauth: permission !== 'granted' || !hasRootPath,
+    permission: permission === 'granted' && !hasRootPath ? 'root_path_unknown' : permission,
     directoryName: data.name || data.handle.name || ''
   };
 }
@@ -314,10 +334,24 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
     case 'EDIT_STATE_CHANGED': {
       if (tabId) {
         if (!tabStates[tabId]) tabStates[tabId] = { active: false, mode: 'off', editCount: 0 };
-        tabStates[tabId].editCount = message.count || 0;
+        if (typeof message.delta === 'number') {
+          tabStates[tabId].editCount = (tabStates[tabId].editCount || 0) + message.delta;
+        } else {
+          tabStates[tabId].editCount = message.count || 0;
+        }
+        var editStorageData = {};
+        editStorageData[getStorageKey(tabId)] = tabStates[tabId];
+        chrome.storage.local.set(editStorageData);
       }
       sendResponse({ success: true });
       break;
+    }
+
+    case 'READ_EDIT_SOURCE': {
+      readEditSource(message.fileUrl).then(sendResponse).catch(function(error) {
+        sendResponse(buildFileError('READ_FAILED', error.message));
+      });
+      return true;
     }
 
     case 'SAVE_EDITED_HTML': {

@@ -220,12 +220,10 @@ const Annotator = (() => {
       : '<div class="field-group text-fields">' +
         '<label>原文本</label>' +
         '<div class="original-text">' + escapeHtml(originalText) + '</div>' +
-        '<label>修改为 <span class="label-hint">（选填）</span></label>' +
-        '<input type="text" class="new-text-input" placeholder="直接改文字…" />' +
         '</div>';
 
     const noteField = '<div class="field-group note-fields">' +
-      '<label>修改说明 <span class="label-hint">（改颜色、位置、交互等）</span></label>' +
+      '<label>修改说明</label>' +
       '<textarea class="note-input" placeholder="描述需要怎么改…" rows="3"></textarea>' +
       '</div>';
 
@@ -249,31 +247,17 @@ const Annotator = (() => {
       saveAnnotation(card, shadow);
     });
 
-    const textInput = shadow.querySelector('.new-text-input');
     const noteInput = shadow.querySelector('.note-input');
-    if (textInput) textInput.focus();
-    if (!textInput && noteInput) noteInput.focus();
+    if (noteInput) noteInput.focus();
   }
 
   async function saveAnnotation(card, shadow) {
     if (!currentCard) return;
 
     const isArea = !!currentCard.areaRect;
-    const newText = shadow.querySelector('.new-text-input')?.value?.trim() || '';
     const note = shadow.querySelector('.note-input')?.value?.trim() || '';
 
-    // At least one field must be filled
-    if (!newText && !note) return;
-
-    // Determine type based on what user filled in
-    let type;
-    if (isArea) {
-      type = 'area';
-    } else if (newText) {
-      type = 'text';
-    } else {
-      type = 'note';
-    }
+    if (!note) return;
 
     // Build areaRect with page context for reproducibility
     let areaRectWithContext = null;
@@ -292,11 +276,11 @@ const Annotator = (() => {
     const id = await ProtoStorage.getNextId();
     const annotation = {
       id: id,
-      type: type,
+      type: isArea ? 'area' : 'note',
       pageName: ProtoStorage.getPageName(),
       selector: currentCard.selector,
       originalText: currentCard.originalText,
-      newText: newText,
+      newText: '',
       note: note,
       areaRect: areaRectWithContext,
       status: 'pending',
@@ -337,9 +321,7 @@ const Annotator = (() => {
     badge.className = '__proto_annotator_badge__';
     badge.dataset.annotationId = annotation.id;
     badge.textContent = annotation.id;
-    badge.title = annotation.type === 'text'
-      ? annotation.originalText + ' → ' + annotation.newText
-      : annotation.note;
+    badge.title = annotation.note || annotation.originalText || annotation.id;
 
     // Status-based badge styling
     if (annotation.status === 'done') {
@@ -610,12 +592,12 @@ const Annotator = (() => {
       '  padding:8px 10px;background:#fafafa;border-radius:5px;' +
       '  font-size:12px;color:#6e7781;margin-bottom:8px;word-break:break-all;' +
       '}' +
-      '.new-text-input, .note-input {' +
+      '.note-input {' +
       '  width:100%;padding:8px 10px;border:1px solid #d8dee4;border-radius:5px;' +
       '  font-size:12px;font-family:inherit;outline:none;transition:border-color 0.15s;' +
       '  box-sizing:border-box;color:#1f2328;background:#ffffff;' +
       '}' +
-      '.new-text-input:focus, .note-input:focus {border-color:#5b6cff;}' +
+      '.note-input:focus {border-color:#5b6cff;}' +
       '.note-input {resize:vertical;min-height:60px;}' +
       '.card-actions {display:flex;justify-content:flex-end;gap:8px;padding:8px 16px 12px;border-top:1px solid #eaeef2;}' +
       '.btn {' +
@@ -629,8 +611,8 @@ const Annotator = (() => {
       '@media (prefers-color-scheme: dark) {' +
       '  .card {background:#161b22;color:#e6edf3;}' +
       '  .original-text {background:#1c2128;color:#8b949e;}' +
-      '  .new-text-input, .note-input {background:#1c2128;color:#e6edf3;border-color:#30363d;}' +
-      '  .new-text-input:focus, .note-input:focus {border-color:#7c8aff;}' +
+      '  .note-input {background:#1c2128;color:#e6edf3;border-color:#30363d;}' +
+      '  .note-input:focus {border-color:#7c8aff;}' +
       '  .btn-cancel {background:#1c2128;color:#8b949e;}' +
       '  .btn-cancel:hover {background:#21262d;}' +
       '  .btn-confirm {background:#7c8aff;color:#161b22;}' +

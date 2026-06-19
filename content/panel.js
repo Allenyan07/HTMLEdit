@@ -313,12 +313,7 @@ const Panel = (() => {
         rows += '<div class="anno-row"><span class="anno-row-icon">📄</span><span class="anno-row-text anno-original">' + escapeHtml(a.originalText) + '</span></div>';
       }
 
-      // Line 2: new text (with ️ icon)
-      if (a.newText) {
-        rows += '<div class="anno-row"><span class="anno-row-icon">✏️</span><span class="anno-row-text anno-new">' + escapeHtml(a.newText) + '</span></div>';
-      }
-
-      // Line 3: note (with 💬 icon)
+      // Line 2: note (with 💬 icon)
       if (a.note) {
         rows += '<div class="anno-row"><span class="anno-row-icon">💬</span><span class="anno-row-text anno-note">' + escapeHtml(a.note) + '</span></div>';
       }
@@ -412,12 +407,10 @@ const Panel = (() => {
       : '<div class="edit-field-group edit-text-fields">' +
         '<label>原文本</label>' +
         '<div class="edit-original-text">' + escapeHtml(a.originalText || '(无文本)') + '</div>' +
-        '<label>修改为 <span class="edit-label-hint">（选填）</span></label>' +
-        '<input type="text" class="edit-new-text-input" value="' + escapeAttr(a.newText) + '" placeholder="直接改文字…" />' +
         '</div>';
 
     const noteField = '<div class="edit-field-group edit-note-fields">' +
-      '<label>修改说明 <span class="edit-label-hint">（改颜色、位置、交互等，选填）</span></label>' +
+      '<label>修改说明</label>' +
       '<textarea class="edit-note-input" rows="3" placeholder="描述需要怎么改…">' + escapeHtml(a.note) + '</textarea>' +
       '</div>';
 
@@ -460,33 +453,20 @@ const Panel = (() => {
       saveEditCard(annotation);
     });
 
-    const textInput = editOverlay.querySelector('.edit-new-text-input');
     const noteInput = editOverlay.querySelector('.edit-note-input');
-    // Focus the field that has content, or text first
-    if (textInput) textInput.focus();
+    if (noteInput) noteInput.focus();
   }
 
   async function saveEditCard(annotation) {
     if (!editOverlay) return;
 
-    const newText = editOverlay.querySelector('.edit-new-text-input')?.value?.trim() || '';
     const note = editOverlay.querySelector('.edit-note-input')?.value?.trim() || '';
 
-    if (!newText && !note) return;
-
-    // Determine type based on content
-    let type;
-    if (annotation.areaRect) {
-      type = 'area';
-    } else if (newText) {
-      type = 'text';
-    } else {
-      type = 'note';
-    }
+    if (!note) return;
 
     const updates = {
-      type: type,
-      newText: newText,
+      type: annotation.areaRect ? 'area' : 'note',
+      newText: '',
       note: note
     };
 
@@ -644,10 +624,6 @@ const Panel = (() => {
           if (a.originalText) {
             lines.push('  📄 原本内容：' + a.originalText);
           }
-        }
-
-        if (a.type === 'text' && a.newText) {
-          lines.push('  ✏️ 修改后：' + a.newText);
         }
 
         if (a.note) {
@@ -900,11 +876,6 @@ const Panel = (() => {
       '  color: #8b949e; font-size: 11px;' +
       '  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;' +
       '}' +
-      '.anno-new {' +
-      '  color: #4a5cef; font-weight: 500;' +
-      '  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;' +
-      '  overflow: hidden; text-overflow: ellipsis; word-break: break-all;' +
-      '}' +
       '.anno-note {' +
       '  color: #6e7781;' +
       '  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;' +
@@ -943,7 +914,6 @@ const Panel = (() => {
       '  .anno-original { color: #e6edf3; }' +
       '  .anno-area-info { color: #8b949e; }' +
       '  .anno-area-elements { color: #484f58; }' +
-      '  .anno-new { color: #a5b0ff; }' +
       '  .anno-note { color: #8b949e; }' +
       '  .panel-empty { color: #484f58; }' +
       '  .empty-hint { color: #30363d; }' +
@@ -1008,12 +978,12 @@ const Panel = (() => {
       '  padding: 8px 10px; background: #fafafa; border-radius: 5px;' +
       '  font-size: 12px; color: #6e7781; margin-bottom: 8px; word-break: break-all;' +
       '}' +
-      '.edit-new-text-input, .edit-note-input {' +
+      '.edit-note-input {' +
       '  width: 100%; padding: 8px 10px; border: 1px solid #d8dee4; border-radius: 5px;' +
       '  font-size: 12px; font-family: inherit; outline: none; transition: border-color 0.15s;' +
       '  box-sizing: border-box;' +
       '}' +
-      '.edit-new-text-input:focus, .edit-note-input:focus { border-color: #5b6cff; }' +
+      '.edit-note-input:focus { border-color: #5b6cff; }' +
       '.edit-note-input { resize: vertical; min-height: 60px; }' +
       '.edit-card-actions {' +
       '  display: flex; justify-content: flex-end; gap: 8px;' +
@@ -1083,8 +1053,8 @@ const Panel = (() => {
       '  .edit-area-el { color: #484f58; }' +
       '  .edit-area-elements-hint { border-bottom-color: #21262d; color: #484f58; }' +
       '  .edit-original-text { background: #1c2128; color: #8b949e; }' +
-      '  .edit-new-text-input, .edit-note-input { background: #1c2128; color: #e6edf3; border-color: #30363d; }' +
-      '  .edit-new-text-input:focus, .edit-note-input:focus { border-color: #7c8aff; }' +
+      '  .edit-note-input { background: #1c2128; color: #e6edf3; border-color: #30363d; }' +
+      '  .edit-note-input:focus { border-color: #7c8aff; }' +
       '  .edit-card-actions { border-top-color: #21262d; }' +
       '  .edit-btn-cancel { background: #1c2128; color: #8b949e; }' +
       '  .edit-btn-cancel:hover { background: #21262d; }' +
