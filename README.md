@@ -4,18 +4,18 @@
 >
 > Chrome MV3 扩展 · 纯原生 JavaScript · 零依赖
 
-[![Chrome Web Store](https://img.shields.io/badge/Chrome%20Web%20Store-v2.0.2-blue)](#安装) [![License](https://img.shields.io/badge/license-MIT-green)](#license) [![Manifest](https://img.shields.io/badge/manifest-v3-orange)](#技术架构)
+[![Chrome Web Store|155](https://img.shields.io/badge/Chrome%20Web%20Store-v2.0.3-blue)](#安装) [![License](https://img.shields.io/badge/license-MIT-green)](#license) [![Manifest](https://img.shields.io/badge/manifest-v3-orange)](#技术架构)
 
-![标注模式](商店截图/01-标注模式.jpg)
+![标注模式](商店截图输出/01-标注模式.jpg)
 > 标注模式：Shift+Click 标注元素，自动生成定位信息，导出结构化文本给 AI
 
-![编辑模式](商店截图/02-编辑模式.jpg)
+![编辑模式](商店截图输出/02-编辑模式.jpg)
 > 编辑模式：双击文本元素即可修改，支持字号颜色等轻量样式调整
 
-![编辑操作](商店截图/03-编辑操作.jpg)
+![编辑操作](商店截图输出/03-编辑操作.jpg)
 > 编辑操作：修改确认后通过 File System Access API 原地保存到本地文件
 
-![导出标注](商店截图/04-导出标注.jpg)
+![导出标注](商店截图输出/04-导出标注.jpg)
 > 导出标注：按页面分组打包，文本 / JSON 双格式，一键复制交付给 AI 或开发
 
 ---
@@ -276,7 +276,7 @@ node --check background.js
 
 ## Roadmap
 
-### 已完成（v2.0.2）
+### 已完成（v2.0.3）
 
 - 元素标注（Shift+Click）
 - 区域标注（Shift+拖拽）
@@ -287,19 +287,6 @@ node --check background.js
 - 文本 / JSON 双格式导出
 - 深色主题
 - iframe 内标注与编辑
-
-### 规划中
-
-- 标注状态筛选
-- 标注搜索（按编号或关键词）
-- 截图导出（标注 + 页面截图一起导出）
-- 批量操作（批量删除、批量标记完成）
-- 面板拖拽调整位置
-
-### 远期
-
-- 协作模式（标注数据可分享给团队成员）
-- 版本管理（标注关联页面版本，支持追溯）
 
 ---
 
