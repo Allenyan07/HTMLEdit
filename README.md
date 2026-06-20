@@ -3,6 +3,8 @@
 > AI 生成 HTML 之后的精修工具。本地 HTML 可直接编辑文字和轻量样式，标注模式把方案调整结构化交给 AI 或开发。
 >
 > Chrome MV3 扩展 · 纯原生 JavaScript · 零依赖
+>
+> **作者**：[@Allenyan07](https://github.com/Allenyan07)
 
 [![Chrome Web Store|155](https://img.shields.io/badge/Chrome%20Web%20Store-v2.0.3-blue)](#安装) [![License](https://img.shields.io/badge/license-MIT-green)](#license) [![Manifest](https://img.shields.io/badge/manifest-v3-orange)](#技术架构)
 
@@ -243,17 +245,6 @@ icons/                     # 4 种状态的图标（default/inactive/active/edit
 1. 克隆仓库
 2. `chrome://extensions` → 开启开发者模式 → 加载 `浏览器插件/prototype-annotator/` 目录
 3. 修改代码后，在扩展卡片上点「刷新」按钮即可重载
-
-### 测试
-
-仓库内 `test-fixtures/html-cases/` 包含各种测试用例：静态文章、表单控件、动态运行时、样式继承、iframe 嵌套等，用于验证标注和编辑在各种页面结构下的行为。
-
-```bash
-# 语法检查
-node --check content/annotator.js
-node --check content/editor.js
-node --check background.js
-```
 
 ### 目录结构
 
