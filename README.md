@@ -6,16 +6,16 @@
 
 [![Chrome Web Store|155](https://img.shields.io/badge/Chrome%20Web%20Store-v2.0.3-blue)](#安装) [![License](https://img.shields.io/badge/license-MIT-green)](#license) [![Manifest](https://img.shields.io/badge/manifest-v3-orange)](#技术架构)
 
-![标注模式](商店截图输出/01-标注模式.jpg)
+![标注模式](商店截图/01-标注模式.jpg)
 > 标注模式：Shift+Click 标注元素，自动生成定位信息，导出结构化文本给 AI
 
-![编辑模式](商店截图输出/02-编辑模式.jpg)
+![编辑模式](商店截图/02-编辑模式.jpg)
 > 编辑模式：双击文本元素即可修改，支持字号颜色等轻量样式调整
 
-![编辑操作](商店截图输出/03-编辑操作.jpg)
+![编辑操作](商店截图/03-编辑操作.jpg)
 > 编辑操作：修改确认后通过 File System Access API 原地保存到本地文件
 
-![导出标注](商店截图输出/04-导出标注.jpg)
+![导出标注](商店截图/04-导出标注.jpg)
 > 导出标注：按页面分组打包，文本 / JSON 双格式，一键复制交付给 AI 或开发
 
 ---
@@ -259,17 +259,21 @@ node --check background.js
 
 ```
 .
-├── 浏览器插件/
-│   └── prototype-annotator/      # 扩展源码（加载到 Chrome 的目录）
-│       ├── manifest.json
-│       ├── background.js
-│       ├── popup.html / popup.js / popup.css
-│       ├── content/
-│       ├── icons/
-│       └── test-fixtures/        # 测试用例
-├── 产品需求文档-PRD.md            # 产品需求文档
-├── REQUIREMENTS-EDIT-MODE.md     # 编辑模式需求规格
-└── README.md
+├── .gitignore
+├── LICENSE
+├── README.md
+├── 商店截图/
+│   ├── 01-标注模式.jpg
+│   ├── 02-编辑模式.jpg
+│   ├── 03-编辑操作.jpg
+│   └── 04-导出标注.jpg
+└── 浏览器插件/
+    └── prototype-annotator/      # 扩展源码（加载到 Chrome 的目录）
+        ├── manifest.json
+        ├── background.js
+        ├── popup.html / popup.js / popup.css
+        ├── content/              # 8 个功能模块
+        └── icons/                # 4 种状态图标
 ```
 
 ---
