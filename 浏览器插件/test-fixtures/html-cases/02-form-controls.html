@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>02 表单控件页</title>
+  <style>
+    body {
+      margin: 0;
+      font: 14px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: #1f2328;
+      background: #f6f8fa;
+    }
+    main {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 32px 24px;
+    }
+    form {
+      display: grid;
+      gap: 16px;
+      padding: 22px;
+      border: 1px solid #d8dee4;
+      border-radius: 8px;
+      background: #fff;
+    }
+    label { display: grid; gap: 6px; font-weight: 600; }
+    input, textarea, select {
+      min-height: 36px;
+      border: 1px solid #d8dee4;
+      border-radius: 6px;
+      padding: 8px 10px;
+      font: inherit;
+    }
+    textarea { min-height: 90px; resize: vertical; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    button {
+      width: fit-content;
+      padding: 8px 14px;
+      border: 0;
+      border-radius: 6px;
+      background: #22c55e;
+      color: #fff;
+      font-weight: 600;
+    }
+    .help { color: #6e7781; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>表单控件编辑测试</h1>
+    <p>用于复现 input、textarea、placeholder、select 等控件的保存差异。</p>
+
+    <form>
+      <div class="row">
+        <label>
+          有 value 的 input
+          <input type="text" value="默认活动">
+        </label>
+        <label>
+          只有 placeholder 的 input
+          <input type="text" placeholder="请输入商品 SKU">
+        </label>
+      </div>
+
+      <label>
+        textarea 标签内部
+        <textarea value="这里是 textarea 的初始内容，当前实现可能不会正确写回标签内部文本">这里是 textarea 的初始内容，当前实现可能不会正确写回标签内部文本。</textarea>
+      </label>
+
+      <label>
+        只有 placeholder 的 text
+        <textarea placeholder="请输入审批"></textarea>
+      </label>
+
+      <label>
+        select 下拉选项
+        <select>
+          <option>待审核</option>
+          <option selected="">已提交</option>
+          <option>已驳回</option>
+        </select>
+      </label>
+
+      <button type="button">提交审批</button>
+      <p class="help">重点验证：修改 textarea 后保存，再重新打开源文件看是否真的落盘。</p>
+    </form>
+  </main>
+
+
+
+</body></html>

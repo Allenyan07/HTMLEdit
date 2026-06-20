@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>05 样式继承页</title>
+  <style>
+    :root {
+      --brand: #5b6cff;
+      --text: #1f2328;
+      --muted: #6e7781;
+      --size: 16px;
+    }
+    body {
+      margin: 0;
+      font: var(--size)/1.7 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--text);
+      background: #fff;
+    }
+    main { max-width: 860px; margin: 0 auto; padding: 32px 24px; }
+    .theme-panel {
+      padding: 18px;
+      border: 1px solid #d8dee4;
+      border-radius: 8px;
+      background: #f6f8fa;
+    }
+    .title {
+      color: var(--brand);
+      font-size: clamp(22px, 4vw, 34px);
+      font-weight: 700;
+    }
+    .muted { color: var(--muted); }
+    .status {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      color: #166534;
+      background: rgba(34,197,94,.12);
+      font-weight: 600;
+    }
+    @media (max-width: 560px) {
+      :root { --size: 14px; }
+      .theme-panel { padding: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1 class="title">样式继承与响应式测试</h1>
+    <div class="theme-panel">
+      <p>这段文字依赖 body 的字体和颜色继承。</p>
+      <p class="muted">这段说明文字依赖 class 控制颜色。</p>
+      <p><span class="status">已启用</span> 这个状态标签依赖 class 控制背景、颜色和字重。</p>
+    </div>
+    <p>重点验证：只改颜色时，是否额外把字号、粗细、斜体写成 inline style。</p>
+  </main>
+
+
+</body></html>

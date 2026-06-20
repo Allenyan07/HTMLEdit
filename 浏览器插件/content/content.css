@@ -1,0 +1,159 @@
+/* ── Badge ────────────────────────────────────────────── */
+.__proto_annotator_badge__ {
+  position: fixed;
+  z-index: 2147483641;
+  background: #5b6cff;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: -apple-system, "Inter", BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  letter-spacing: -0.02em;
+  min-width: 22px;
+  height: 22px;
+  line-height: 22px;
+  text-align: center;
+  padding: 0 6px;
+  border-radius: 11px;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: transform 0.15s ease;
+  user-select: none;
+}
+
+.__proto_annotator_badge__:hover {
+  transform: scale(1.1);
+}
+
+.__proto_annotator_badge_missing__ {
+  background: #6e7781;
+  left: 10px;
+}
+
+/* ── Highlight / Overlay ───────────────────────────────── */
+.__proto_annotator_highlight__ {
+  transition: all 0.15s ease;
+}
+
+.__proto_annotator_area_overlay__ {
+  transition: all 0.15s ease;
+}
+
+.__proto_annotator_area_label__ {
+  transition: transform 0.15s ease;
+}
+
+.__proto_annotator_area_label__:hover {
+  transform: scale(1.1);
+}
+
+.__proto_annotator_overlay__ {
+  user-select: none;
+}
+
+.__proto_annotator_selection__ {
+  user-select: none;
+}
+
+/* ── Edit Mode ─────────────────────────────────────────── */
+.__proto_editor_edited__ {
+  outline: 1px solid rgba(34, 197, 94, 0.35) !important;
+  background: rgba(34, 197, 94, 0.04) !important;
+}
+
+/* ── Toast ─────────────────────────────────────────────── */
+.__proto_annotator_toast__ {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2147483648;
+  background: rgba(31, 35, 40, 0.92);
+  color: #ffffff;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: -apple-system, "Inter", BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  line-height: 1.5;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+/* ── Status Badges ─────────────────────────────────────── */
+.__proto_annotator_badge_status_done__ {
+  background: #7c8aff !important;
+  text-decoration: line-through;
+  opacity: 0.75;
+}
+
+.__proto_annotator_badge_status_rejected__ {
+  background: #8b949e !important;
+  text-decoration: line-through;
+  opacity: 0.55;
+}
+
+/* ── FAB ───────────────────────────────────────────────── */
+.__proto_annotator_fab__ {
+  position: fixed;
+  right: -60px;
+  bottom: 32px;
+  z-index: 2147483646;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #5b6cff 0%, #7c5bff 100%);
+  color: #ffffff;
+  font-size: 18px;
+  line-height: 44px;
+  text-align: center;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 8px 20px rgba(91, 108, 255, 0.35);
+  transition: right 0.25s ease, transform 0.15s, box-shadow 0.15s;
+  user-select: none;
+  font-family: -apple-system, "Inter", BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+.__proto_annotator_fab_visible__ {
+  right: 20px;
+}
+
+.__proto_annotator_fab__:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 12px 28px rgba(91, 108, 255, 0.45);
+}
+
+/* ── Dark Mode ─────────────────────────────────────────── */
+@media (prefers-color-scheme: dark) {
+  .__proto_annotator_badge__ {
+    background: #7c8aff;
+  }
+
+  .__proto_annotator_badge_missing__ {
+    background: #8b949e;
+  }
+
+  .__proto_annotator_badge_status_done__ {
+    background: #5b6cff !important;
+  }
+
+  .__proto_annotator_badge_status_rejected__ {
+    background: #6e7781 !important;
+  }
+
+  .__proto_annotator_toast__ {
+    background: rgba(230, 237, 243, 0.92);
+    color: #161b22;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 8px 24px rgba(0, 0, 0, 0.4);
+  }
+
+  .__proto_annotator_fab__ {
+    background: linear-gradient(135deg, #7c8aff 0%, #9b7cff 100%);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 8px 20px rgba(124, 138, 255, 0.45);
+  }
+
+  .__proto_annotator_fab__:hover {
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 12px 28px rgba(124, 138, 255, 0.55);
+  }
+}
