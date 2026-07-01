@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <h1 class="popup-title">页改笔 HTMLEdit</h1>
+    <div class="popup-status" id="statusText">未注入</div>
+    <div class="mode-segment" role="group" aria-label="模式切换">
+      <button class="mode-btn" id="offBtn" data-mode="off">关闭</button>
+      <button class="mode-btn" id="editBtn" data-mode="edit">编辑</button>
+      <button class="mode-btn" id="annotateBtn" data-mode="annotate">标注</button>
+    </div>
+    <button class="popup-btn secondary" id="authBtn" hidden>授权原型目录</button>
+    <div class="edit-state" id="editState" hidden>未授权目录</div>
+    <div class="popup-hint" id="hintText">选择模式后在页面中操作</div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

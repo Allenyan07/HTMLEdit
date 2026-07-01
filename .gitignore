@@ -3,3 +3,10 @@ test-sub.html
 gen_icons.py
 .DS_Store
 _backup/
+node_modules/
+*.zip
+商店截图Demo/
+商店截图输出/
+build_temp/
+页改笔-HTMLEdit-v2.0.2.zip
+页改笔-HTMLEdit-v2.0.3.zip
