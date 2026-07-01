@@ -43,6 +43,7 @@ const CONTENT_SCRIPTS = [
 ];
 
 const CONTENT_CSS = ['content/content.css'];
+const FILE_OPERATION_TIMEOUT_MS = 20000;
 
 const tabStates = {};
 
@@ -86,6 +87,28 @@ async function queryEditPermission(handle) {
 
 function buildFileError(code, message, detail) {
   return { success: false, error: { code: code, message: message || code, detail: detail || '' } };
+}
+
+function buildCaughtFileError(defaultCode, defaultMessage, error) {
+  return buildFileError(
+    error && error.code ? error.code : defaultCode,
+    error && error.userMessage ? error.userMessage : defaultMessage,
+    error && error.message ? error.message : ''
+  );
+}
+
+function withTimeout(promise, code, message, detail) {
+  return Promise.race([
+    promise,
+    new Promise(function(resolve, reject) {
+      setTimeout(function() {
+        const error = new Error(detail || message || code);
+        error.code = code;
+        error.userMessage = message || code;
+        reject(error);
+      }, FILE_OPERATION_TIMEOUT_MS);
+    })
+  ]);
 }
 
 function getPathSegments(fileUrl) {
@@ -181,11 +204,21 @@ async function readEditSource(fileUrl) {
   if (result.error) return result.error;
 
   try {
-    const file = await result.fileHandle.getFile();
-    const html = await file.text();
+    const file = await withTimeout(
+      result.fileHandle.getFile(),
+      'READ_TIMEOUT',
+      'Reading the HTML file timed out',
+      'fileHandle.getFile() did not finish'
+    );
+    const html = await withTimeout(
+      file.text(),
+      'READ_TIMEOUT',
+      'Reading the HTML file timed out',
+      'file.text() did not finish'
+    );
     return { success: true, html: html };
   } catch (e) {
-    return buildFileError('READ_FAILED', 'Could not read the HTML file', e.message);
+    return buildCaughtFileError('READ_FAILED', 'Could not read the HTML file', e);
   }
 }
 
@@ -194,12 +227,27 @@ async function saveEditedHtml(message) {
   if (result.error) return result.error;
 
   try {
-    const writable = await result.fileHandle.createWritable();
-    await writable.write(message.html);
-    await writable.close();
+    const writable = await withTimeout(
+      result.fileHandle.createWritable(),
+      'WRITE_TIMEOUT',
+      'Opening the HTML file for writing timed out',
+      'fileHandle.createWritable() did not finish'
+    );
+    await withTimeout(
+      writable.write(message.html),
+      'WRITE_TIMEOUT',
+      'Writing the HTML file timed out',
+      'writable.write() did not finish'
+    );
+    await withTimeout(
+      writable.close(),
+      'WRITE_TIMEOUT',
+      'Closing the HTML file after writing timed out',
+      'writable.close() did not finish'
+    );
     return { success: true, pageName: message.pageName };
   } catch (e) {
-    return buildFileError('WRITE_FAILED', 'Could not write the HTML file', e.message);
+    return buildCaughtFileError('WRITE_FAILED', 'Could not write the HTML file', e);
   }
 }
 
@@ -236,15 +284,21 @@ function ensureContentScriptsInjected(tabId) {
           target: { tabId: tabId, allFrames: true },
           files: CONTENT_SCRIPTS
         }, function() {
+          if (chrome.runtime.lastError) {
+            resolve(false);
+            return;
+          }
           chrome.scripting.insertCSS({
             target: { tabId: tabId, allFrames: true },
             files: CONTENT_CSS
           }, function() {
-            setTimeout(resolve, 200);
+            setTimeout(function() {
+              resolve(!chrome.runtime.lastError);
+            }, 200);
           });
         });
       } else {
-        resolve();
+        resolve(true);
       }
     });
   });
@@ -269,20 +323,42 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
       var mode = message.mode || (message.active ? 'annotate' : 'off');
       var active = mode !== 'off';
       var topLevelUrl = message.topLevelUrl;
-      if (tabId) {
+      if (!tabId) {
+        sendResponse({ success: false, error: { code: 'NO_TAB' } });
+        break;
+      }
+      if (!active) {
+        var offEditCount = tabStates[tabId] ? (tabStates[tabId].editCount || 0) : 0;
+        tabStates[tabId] = { active: false, mode: mode, topLevelUrl: topLevelUrl, editCount: offEditCount };
+        setIconState(tabId, getIconStateForMode(mode));
+        var offStorageData = {};
+        offStorageData[getStorageKey(tabId)] = tabStates[tabId];
+        chrome.storage.local.set(offStorageData);
+        sendMessageToAllFrames(tabId, { type: 'MODE_CHANGED', active: false, mode: mode });
+        sendResponse({ success: true });
+        break;
+      }
+      ensureContentScriptsInjected(tabId).then(function(injected) {
+        if (!injected) {
+          sendResponse({
+            success: false,
+            error: {
+              code: 'INJECTION_FAILED',
+              message: 'Could not inject content scripts into the current page'
+            }
+          });
+          return;
+        }
         var editCount = tabStates[tabId] ? (tabStates[tabId].editCount || 0) : 0;
-        tabStates[tabId] = { active: active, mode: mode, topLevelUrl: topLevelUrl, editCount: editCount };
+        tabStates[tabId] = { active: true, mode: mode, topLevelUrl: topLevelUrl, editCount: editCount };
         setIconState(tabId, getIconStateForMode(mode));
         var storageData = {};
-        storageData[getStorageKey(tabId)] = { active: active, mode: mode, topLevelUrl: topLevelUrl, editCount: editCount };
+        storageData[getStorageKey(tabId)] = tabStates[tabId];
         chrome.storage.local.set(storageData);
-
-        ensureContentScriptsInjected(tabId).then(function() {
-          sendMessageToAllFrames(tabId, { type: 'MODE_CHANGED', active: active, mode: mode });
-        });
-      }
-      sendResponse({ success: true });
-      break;
+        sendMessageToAllFrames(tabId, { type: 'MODE_CHANGED', active: true, mode: mode });
+        sendResponse({ success: true });
+      });
+      return true;
     }
 
     case 'GET_MODE': {

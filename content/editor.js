@@ -882,7 +882,11 @@ const Editor = (() => {
     if (code === 'OUTSIDE_DIRECTORY') return '当前文件不在已授权目录内';
     if (code === 'FILE_NOT_FOUND') return '找不到当前页面对应的 HTML 文件';
     if (code === 'READ_FAILED') return '读取源 HTML 失败，请检查文件是否可访问';
+    if (code === 'READ_TIMEOUT') return '读取源 HTML 超时，请检查商店版扩展的文件访问权限后重试';
     if (code === 'WRITE_FAILED') return '写入 HTML 失败，请检查文件是否被占用或不可写';
+    if (code === 'WRITE_TIMEOUT') return '写入 HTML 超时，请检查文件是否被占用，或重新授权目录后重试';
+    if (code === 'BACKGROUND_TIMEOUT') return '保存响应超时，请重新打开页面或在扩展弹窗中重新授权目录后重试';
+    if (code === 'BACKGROUND_UNAVAILABLE') return '扩展后台暂时不可用，请刷新页面后重试';
     if (code === 'SOURCE_TARGET_NOT_FOUND') return '无法在源 HTML 中定位当前元素，请刷新页面后重试';
     if (code === 'UNSUPPORTED') return '当前浏览器不支持目录写入能力';
     return '保存失败，请重新授权目录后重试';

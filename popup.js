@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let editAuthorized = false;
   let showEditAuth = false;
   let authAction = 'choose';
+  let fileSchemeAllowed = true;
 
   function openEditDb() {
     return new Promise((resolve, reject) => {
@@ -95,6 +96,71 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  function isFilePage() {
+    return tabUrl.startsWith('file://');
+  }
+
+  function getFileSchemeAccessAllowed() {
+    return new Promise((resolve) => {
+      const api = chrome.extension && chrome.extension.isAllowedFileSchemeAccess;
+      if (!api) {
+        resolve(true);
+        return;
+      }
+
+      let settled = false;
+      const done = (allowed) => {
+        if (settled) return;
+        settled = true;
+        resolve(!!allowed);
+      };
+      setTimeout(() => done(true), 1200);
+
+      try {
+        const result = api(done);
+        if (result && typeof result.then === 'function') {
+          result.then(done).catch(() => done(true));
+        } else if (typeof result === 'boolean') {
+          done(result);
+        }
+      } catch (e) {
+        try {
+          const result = api();
+          if (result && typeof result.then === 'function') {
+            result.then(done).catch(() => done(true));
+          } else if (typeof result === 'boolean') {
+            done(result);
+          } else {
+            done(true);
+          }
+        } catch (err) {
+          done(true);
+        }
+      }
+    });
+  }
+
+  function showFileAccessBlocked() {
+    statusText.textContent = '需要开启文件访问权限';
+    statusText.classList.remove('active', 'edit');
+    hintText.textContent = '请在 Chrome 扩展详情中开启“允许访问文件网址”，然后刷新当前 HTML 页面';
+    showEditAuth = false;
+    authBtn.hidden = true;
+    editState.hidden = true;
+    modeButtons.forEach((btn) => {
+      btn.classList.remove('active');
+    });
+    setControlsDisabled(true);
+  }
+
+  function showInjectionFailed() {
+    statusText.textContent = '页面脚本注入失败';
+    statusText.classList.remove('active', 'edit');
+    hintText.textContent = isFilePage()
+      ? '请确认已开启“允许访问文件网址”，然后刷新当前 HTML 页面'
+      : '请刷新页面后重试，或确认当前页面允许扩展访问';
+  }
+
   function setControlsDisabled(disabled) {
     modeButtons.forEach((btn) => {
       btn.disabled = disabled;
@@ -140,6 +206,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function setMode(mode) {
     if (!tabId) return;
+    if (isFilePage() && !fileSchemeAllowed) {
+      showFileAccessBlocked();
+      return;
+    }
     if (mode === 'edit' && !editAuthorized) {
       showEditAuth = true;
       updateModeUI('edit');
@@ -153,7 +223,10 @@ document.addEventListener('DOMContentLoaded', () => {
       tabId: tabId,
       topLevelUrl: tabUrl
     }, (response) => {
-      if (chrome.runtime.lastError || !response) return;
+      if (chrome.runtime.lastError || !response || !response.success) {
+        showInjectionFailed();
+        return;
+      }
       updateModeUI(mode);
       refreshEditState();
     });
@@ -237,25 +310,31 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    if (!tabs[0]) {
+  async function initForActiveTab(activeTab) {
+    if (!activeTab) {
       statusText.textContent = '未找到活动标签页';
       setControlsDisabled(true);
       return;
     }
-    if (!tabs[0].url) {
+    if (!activeTab.url) {
       statusText.textContent = '未找到页面地址';
       setControlsDisabled(true);
       return;
     }
-    tabUrl = tabs[0].url;
+    tabUrl = activeTab.url;
     if (!tabUrl.startsWith('file://') && !tabUrl.startsWith('http://') && !tabUrl.startsWith('https://')) {
       statusText.textContent = '请在网页或 file:// 页面上使用';
       setControlsDisabled(true);
       return;
     }
 
-    tabId = tabs[0].id;
+    tabId = activeTab.id;
+    fileSchemeAllowed = !isFilePage() || await getFileSchemeAccessAllowed();
+    if (!fileSchemeAllowed) {
+      showFileAccessBlocked();
+      return;
+    }
+
     chrome.runtime.sendMessage({ type: 'GET_MODE', tabId: tabId }, (response) => {
       if (chrome.runtime.lastError || !response) {
         statusText.textContent = '未注入（请刷新页面后重试）';
@@ -266,6 +345,10 @@ document.addEventListener('DOMContentLoaded', () => {
       setControlsDisabled(false);
       refreshEditState();
     });
+  }
+
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    initForActiveTab(tabs[0]);
   });
 
   modeButtons.forEach((btn) => {
