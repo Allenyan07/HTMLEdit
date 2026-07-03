@@ -6,7 +6,7 @@
 >
 > **作者**：[@Allenyan07](https://github.com/Allenyan07)
 
-[![Chrome Web Store|155](https://img.shields.io/badge/Chrome%20Web%20Store-v2.0.3-blue)](#安装) [![License](https://img.shields.io/badge/license-MIT-green)](#license) [![Manifest](https://img.shields.io/badge/manifest-v3-orange)](#技术架构)
+[![Chrome Web Store|155](https://img.shields.io/badge/Chrome%20Web%20Store-v2.0.5-blue)](#安装) [![License](https://img.shields.io/badge/license-MIT-green)](#license) [![Manifest](https://img.shields.io/badge/manifest-v3-orange)](#技术架构)
 
 ![标注模式](商店截图/01-标注模式.jpg)
 > 标注模式：Shift+Click 标注元素，自动生成定位信息，导出结构化文本给 AI
@@ -270,7 +270,7 @@ icons/                     # 4 种状态的图标（default/inactive/active/edit
 
 ## Roadmap
 
-### 已完成（v2.0.3）
+### 已完成（v2.0.5）
 
 - 元素标注（Shift+Click）
 - 区域标注（Shift+拖拽）
