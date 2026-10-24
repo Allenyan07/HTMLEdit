@@ -29,12 +29,47 @@ body {
 }
 
 .popup-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   font-size: 12px;
   color: #1f2328;
   margin-bottom: 12px;
   padding: 6px 10px;
   border-radius: 6px;
   background: #f6f8fa;
+}
+
+.status-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 右侧键位徽标：提示当前模式对应的切换快捷键 */
+.status-shortcut {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(31, 35, 40, 0.14);
+  background: #fff;
+  color: #5b6570;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.popup-status.active .status-shortcut {
+  color: #3370ff;
+  border-color: rgba(51, 112, 255, 0.3);
+}
+
+.popup-status.edit .status-shortcut {
+  color: #15803d;
+  border-color: rgba(21, 128, 61, 0.3);
 }
 
 .popup-status.active {

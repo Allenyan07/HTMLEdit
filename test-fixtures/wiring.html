@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>v2.1.0 接线集成测试</title>
+<style>.fake { font: 14px/1.6 -apple-system, "PingFang SC", sans-serif; padding: 16px; }</style>
+</head>
+<body>
+<div class="fake">
+  <p id="editMe">这段文字应该可以被双击编辑。</p>
+  <table><tr><td>工单ID</td><td>GD-1001</td></tr></table>
+</div>
+
+<script>
+/* ═══════════════════════ chrome API 桩 ═══════════════════════
+ * 刻意「不」提供 chrome.commands —— 真实 content script 跑在隔离世界，
+ * 那里 keys 只有 [dom, extension, i18n, runtime, storage]，没有 commands。
+ * 早先的版本在页面里塞了假的 chrome.commands，导致「快捷键提示」这条断言
+ * 假通过、掩盖了线上永远显示「未分配快捷键」的真 bug。现在必须由
+ * background 代读后经 GET_SHORTCUTS 回传。
+ */
+window.__log = [];
+window.__chromeListeners = [];
+window.__bgState = { active: false, mode: 'paused' };
+window.__readSourceAttempts = 0;
+window.__requestAuthCount = 0;
+window.__readSourceShouldFail = true;   // 模拟「源文件读取因授权失败」
+
+function bgDispatch(msg) {
+  window.__chromeListeners.forEach(function (fn) {
+    try { fn(msg, {}, function () {}); } catch (e) { window.__log.push({ dir: 'listener-error', msg: String(e) }); }
+  });
+}
+
+// 模拟 background 的 commands.onCommand 门控（真实门控在 background 里，本测试
+// 只保证 content 侧对 EXPORT_ANNOTATIONS 的处理正确；background 的门控另有用例覆盖）
+function bgCommand(name) {
+  if (name === 'export-annotations') {
+    if (!(window.__bgState.active && window.__bgState.mode === 'annotate')) {
+      window.__log.push({ dir: 'command-ignored', name: name });
+      return;
+    }
+    bgDispatch({ type: 'EXPORT_ANNOTATIONS' });
+  }
+}
+
+function bgHandle(msg, cb) {
+  window.__log.push({ dir: 'out', type: msg.type, mode: msg.mode, code: msg.code });
+  setTimeout(function () {
+    switch (msg.type) {
+      case 'GET_MODE':
+        cb({ active: window.__bgState.active, mode: window.__bgState.mode, topLevelUrl: location.href });
+        break;
+      case 'GET_SHORTCUTS':
+        cb({ edit: '⌥Q', annotate: '⌥W', export: '⌥E' });
+        break;
+      case 'SET_MODE': {
+        var m = (msg.mode === 'edit' || msg.mode === 'annotate') ? msg.mode : 'paused';
+        window.__bgState = { active: m !== 'paused', mode: m };
+        cb({ success: true });
+        setTimeout(function () { bgDispatch({ type: 'MODE_CHANGED', active: m !== 'paused', mode: m }); }, 10);
+        break;
+      }
+      case 'GET_EDIT_READINESS':
+        cb({ ready: false, code: 'NO_DIRECTORY', remedy: 'choose', directoryName: '' });
+        break;
+      case 'REQUEST_AUTH':
+        window.__requestAuthCount += 1;
+        window.__log.push({ dir: 'auth-requested', code: msg.code });
+        cb({ success: true });
+        break;
+      case 'READ_EDIT_SOURCE':
+        window.__readSourceAttempts += 1;
+        if (window.__readSourceShouldFail) {
+          cb({ success: false, error: { code: 'NO_DIRECTORY', message: '尚未授权目录' } });
+        } else {
+          cb({ success: true, html: '<html><body><p id="editMe">这段文字应该可以被双击编辑。</p></body></html>' });
+        }
+        break;
+      case 'SAVE_EDITED_HTML':
+        cb({ success: true });
+        break;
+      default:
+        cb({ success: true });
+    }
+  }, 0);
+}
+
+window.chrome = {
+  runtime: {
+    lastError: null,
+    sendMessage: function (msg, cb) { bgHandle(msg, cb); return true; },
+    onMessage: { addListener: function (fn) { window.__chromeListeners.push(fn); } }
+  },
+  storage: {
+    local: {
+      _d: {},
+      get: function (keys, cb) {
+        var out = {};
+        var self = this;
+        (keys || []).forEach(function (k) { if (k in self._d) out[k] = self._d[k]; });
+        cb && cb(out);
+      },
+      set: function (obj, cb) {
+        var self = this;
+        Object.keys(obj || {}).forEach(function (k) { self._d[k] = obj[k]; });
+        cb && cb();
+      },
+      remove: function (keys, cb) {
+        var self = this;
+        (keys || []).forEach(function (k) { delete self._d[k]; });
+        cb && cb();
+      }
+    }
+  },
+  action: { setIcon: function () { return Promise.resolve(); } },
+  tabs: {},
+  windows: {}
+};
+</script>
+
+<!-- 按 manifest 顺序加载真实内容脚本 -->
+<script src="../content/storage.js"></script>
+<script src="../content/selector.js"></script>
+<script src="../content/messaging.js"></script>
+<script src="../content/area-selector.js"></script>
+<script src="../content/annotator.js"></script>
+<script src="../content/raw-patch.js"></script>
+<script src="../content/editor.js"></script>
+<script src="../content/panel.js"></script>
+<script src="../content/hud.js"></script>
+<script src="../content/content.js"></script>
+
+<script>
+(function () {
+  var results = [];
+  function ok(name, pass, detail) {
+    results.push({ name: name, pass: !!pass, detail: detail === undefined ? '' : String(detail) });
+  }
+  function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function host() { return document.getElementById('__proto_annotator_hud__'); }
+  function pill() { var h = host(); return h && h.shadowRoot && h.shadowRoot.querySelector('.pill'); }
+  function shadowEl(sel) { var h = host(); return h && h.shadowRoot && h.shadowRoot.querySelector(sel); }
+  function clickSeg(mode) {
+    var seg = pill() && pill().querySelector('.seg[data-for="' + mode + '"]');
+    if (!seg) return false;
+    seg.click();
+    return true;
+  }
+  function clickPanelBtn() {
+    var b = shadowEl('.panel-btn');
+    if (!b) return false;
+    b.click();
+    return true;
+  }
+  function panelHost() { return document.getElementById('__proto_annotator_panel_container__'); }
+  function exportHost() { return document.getElementById('__proto_annotator_export_card_container__'); }
+  function logCount(type) { return window.__log.filter(function (l) { return l.type === type; }).length; }
+
+  // 复刻 ProtoStorage 的桶 key，用来预置标注数据
+  function protoKeyOfCurrentDir() {
+    var path = new URL(location.href).pathname;
+    var dir = path.substring(0, path.lastIndexOf('/') + 1);
+    return 'proto_' + btoa(unescape(encodeURIComponent(dir))).replace(/[+=/]/g, '_');
+  }
+  function pageName() { return decodeURIComponent(new URL(location.href).pathname.split('/').pop()); }
+
+  window.addEventListener('load', function () {
+    setTimeout(function () {
+      (async function () {
+        /* ── 1. 挂载 ── */
+        ok('胶囊宿主已注入', !!host());
+        // 用 offsetWidth/Height（布局盒）而不是 getBoundingClientRect：
+        // 暂停态的停靠效果带 transform: scale(.94)，rect 会被缩成 41×41，
+        // 但盒子本身仍然是 44×44。度量方式选错会把样式效果误判成尺寸错误。
+        var w = pill() ? pill().offsetWidth : 0;
+        var h = pill() ? pill().offsetHeight : 0;
+        ok('折叠态布局盒正好 44×44', w === 44 && h === 44, w + '×' + h);
+        ok('z-index 为 2147483646（低于编辑卡片）',
+          (host().style.zIndex || getComputedStyle(host()).zIndex) === '2147483646',
+          host().style.zIndex || getComputedStyle(host()).zIndex);
+
+        /* ── 2. 初始状态 ── */
+        ok('GET_MODE 已发出', logCount('GET_MODE') >= 1);
+        await wait(60);
+        ok('初始为暂停态', pill() && pill().getAttribute('data-mode') === 'paused', pill() && pill().getAttribute('data-mode'));
+
+        /* 暂停态不应常显：默认停靠（淡出且不吃点击），鼠标靠近右下角才浮现 */
+        ok('暂停态默认停靠（不常显）', pill().className.indexOf('parked') !== -1, pill().className);
+        ok('停靠时不吃鼠标事件', getComputedStyle(pill()).pointerEvents === 'none',
+          getComputedStyle(pill()).pointerEvents);
+        document.dispatchEvent(new MouseEvent('mousemove', {
+          bubbles: true, clientX: window.innerWidth - 40, clientY: window.innerHeight - 30
+        }));
+        await wait(140);
+        ok('鼠标靠近右下角时暂停态胶囊浮现', pill().className.indexOf('parked') === -1, pill().className);
+        ok('浮现后可点击', getComputedStyle(pill()).pointerEvents !== 'none',
+          getComputedStyle(pill()).pointerEvents);
+        document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 60, clientY: 60 }));
+        await wait(560);
+        ok('鼠标离开后重新停靠', pill().className.indexOf('parked') !== -1, pill().className);
+
+        /* ── 3. 快捷键提示必须经 background 代读 ── */
+        ok('页面里确实没有 chrome.commands（还原隔离世界）', typeof chrome.commands === 'undefined');
+        var segTitle = (pill() && pill().querySelector('.seg[data-for="edit"]').getAttribute('title')) || '';
+        ok('分段 tooltip 含 ⌥Q（经 GET_SHORTCUTS 回传）', segTitle.indexOf('⌥Q') !== -1, segTitle);
+        var exportTitle = shadowEl('.panel-btn') ? (shadowEl('.panel-btn').getAttribute('title') || '') : '';
+        ok('📋 tooltip 含 ⌥E', exportTitle.indexOf('⌥E') !== -1, exportTitle);
+
+        /* ── 4. 进入标注：面板创建 + 胶囊让位（走真实 Panel 路径）── */
+        ok('能点到「标注」段', clickSeg('annotate'));
+        await wait(140);
+        ok('SET_MODE(annotate) 已发出', window.__log.some(function (l) { return l.type === 'SET_MODE' && l.mode === 'annotate'; }));
+        ok('胶囊切到标注态', pill() && pill().getAttribute('data-mode') === 'annotate', pill() && pill().getAttribute('data-mode'));
+        ok('标注面板已创建', !!panelHost());
+        ok('面板打开时胶囊让出 360px', host().style.right === '380px', 'right=' + host().style.right);
+        ok('点击 📋 能收起面板（经 Panel.toggle）', clickPanelBtn());
+        await wait(80);
+        ok('收起后胶囊回到 20px', host().style.right === '20px', 'right=' + host().style.right);
+        clickPanelBtn();
+        await wait(80);
+        ok('再点 📋 又能展开', host().style.right === '380px' && !!panelHost(), 'right=' + host().style.right);
+
+        /* ── 5. ⌥E：标注态触发真实导出 ──
+         * 注意：exportAnnotations() 内部有「没有标注就直接 return」，
+         * 所以必须先预置数据，否则这条断言会因空数据而假通过。 */
+        var seedKey = protoKeyOfCurrentDir();
+        chrome.storage.local._d[seedKey] = [
+          { id: 'A01', pageName: pageName(), note: 'a' },
+          { id: 'A02', pageName: pageName(), note: 'b' },
+          { id: 'A03', pageName: 'another-page.html', note: 'c' }
+        ];
+        bgCommand('export-annotations');
+        await wait(80);
+        ok('标注态下 ⌥E 触发真实导出浮层', !!exportHost());
+        if (typeof Panel !== 'undefined' && Panel.closeExportOverlay) Panel.closeExportOverlay();
+        // closeExportOverlay 有 200ms 的淡出动画后才移除容器，等够再断言
+        await wait(320);
+        ok('关闭后导出浮层消失', !exportHost());
+
+        /* ── 6. 角标 = 本页标注数量（不是改字数量）── */
+        var key = seedKey;
+        bgDispatch({ type: 'ANNOTATION_CREATED', annotation: { id: 'A01', pageName: pageName() } });
+        await wait(90);
+        var badge = shadowEl('.count');
+        ok('角标只数本页标注（3 条里本页 2 条）',
+          !!badge && badge.textContent === '2' && badge.className.indexOf('show') !== -1,
+          badge ? badge.textContent : 'n/a');
+        ok('角标 tooltip 说明是标注数', badge && badge.title === '2 条标注', badge ? badge.title : 'n/a');
+        chrome.storage.local._d[key] = [];
+        bgDispatch({ type: 'ANNOTATION_DELETED', annotation: { id: 'A01', pageName: pageName() } });
+        await wait(90);
+        ok('标注清空后角标隐藏', badge.className.indexOf('show') === -1, badge.className);
+
+        /* ── 7. 切到编辑：就绪小黄点 ── */
+        clickSeg('edit');
+        await wait(140);
+        ok('胶囊切到编辑态', pill() && pill().getAttribute('data-mode') === 'edit', pill() && pill().getAttribute('data-mode'));
+        ok('编辑态胶囊常显（不停靠）', pill().className.indexOf('parked') === -1, pill().className);
+        var dot = shadowEl('.ready-dot');
+        ok('未授权时显示就绪小黄点', !!dot && dot.className.indexOf('show') !== -1, dot ? dot.className : 'n/a');
+
+        /* ── 8. 授权完成后刷新就绪 ── */
+        var beforeReady = logCount('GET_EDIT_READINESS');
+        bgDispatch({ type: 'AUTH_COMPLETED', ok: true });
+        await wait(70);
+        ok('AUTH_COMPLETED 后重新拉取就绪状态', logCount('GET_EDIT_READINESS') > beforeReady,
+          beforeReady + ' → ' + logCount('GET_EDIT_READINESS'));
+
+        /* ── 9. 快捷键切换失败要有反馈 ── */
+        bgDispatch({ type: 'MODE_SWITCH_FAILED', error: { code: 'INJECTION_FAILED' } });
+        await wait(40);
+        ok('MODE_SWITCH_FAILED 弹出页面内 toast', !!document.querySelector('.__proto_editor_undo_toast__'));
+
+        /* ── 10. Esc 只收起胶囊，不改变模式 ── */
+        pill().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await wait(50);
+        var opened = pill().className.indexOf('open') !== -1;
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await wait(50);
+        ok('Esc 收起胶囊且不改变模式',
+          opened && pill().className.indexOf('open') === -1 && pill().getAttribute('data-mode') === 'edit',
+          '展开过=' + opened + ' 模式=' + pill().getAttribute('data-mode'));
+
+        /* ── 11. 授权失败→自动弹窗→授权后自动重试→再失败不再弹窗（熔断）── */
+        var attempts0 = window.__readSourceAttempts;
+        document.getElementById('editMe').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+        await wait(120);
+        var cardHost = document.getElementById('__proto_editor_card__');
+        ok('双击后编辑卡片打开', !!cardHost);
+        var ta = cardHost && cardHost.shadowRoot.querySelector('.new-text-input');
+        ok('卡片里有文本输入框', !!ta);
+        var confirmBtn = cardHost && cardHost.shadowRoot.querySelector('.btn-confirm');
+        ok('卡片里有确认按钮', !!confirmBtn);
+        if (ta) ta.value = '这段文字被改过了';
+        if (confirmBtn) confirmBtn.click();
+        await wait(180);
+        ok('保存因授权失败后自动请求授权', window.__requestAuthCount === 1, 'REQUEST_AUTH × ' + window.__requestAuthCount);
+        var authLog = window.__log.filter(function (l) { return l.dir === 'auth-requested'; });
+        ok('REQUEST_AUTH 带上了失败原因 code', authLog.length && authLog[0].code === 'NO_DIRECTORY',
+          authLog.length ? String(authLog[0].code) : 'n/a');
+        ok('保存失败时确实尝试读了源文件', window.__readSourceAttempts > attempts0,
+          attempts0 + ' → ' + window.__readSourceAttempts);
+
+        // 连点确认不应弹第二个窗
+        if (confirmBtn) confirmBtn.click();
+        await wait(130);
+        ok('已挂起授权时不重复弹窗', window.__requestAuthCount === 1, 'REQUEST_AUTH × ' + window.__requestAuthCount);
+
+        // 授权完成 → 自动重试
+        var attempts1 = window.__readSourceAttempts;
+        bgDispatch({ type: 'AUTH_COMPLETED', ok: true });
+        await wait(200);
+        ok('授权完成后自动重试了这次保存', window.__readSourceAttempts > attempts1,
+          attempts1 + ' → ' + window.__readSourceAttempts);
+
+        // 重试仍失败 → 熔断，不再弹第三个窗
+        ok('同一张卡二次失败后不再弹窗（熔断生效）', window.__requestAuthCount === 1,
+          'REQUEST_AUTH × ' + window.__requestAuthCount);
+
+        // 卡片关掉后，迟到的授权回执不应触发保存
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await wait(70);
+        var attempts2 = window.__readSourceAttempts;
+        bgDispatch({ type: 'AUTH_COMPLETED', ok: true });
+        await wait(150);
+        ok('卡片已关闭时授权回执不触发保存（无悬挂重试）', window.__readSourceAttempts === attempts2,
+          attempts2 + ' → ' + window.__readSourceAttempts);
+
+        /* ── 12. 回滚不销毁子元素 ── */
+        if (Editor.__test) {
+          var box = document.createElement('div');
+          box.innerHTML = '<a href="#">链接</a><span>文字</span>';
+          var before = box.childNodes.length;
+          var snap = Editor.__test.captureElementState(box);
+          box.textContent = '被拍平了';
+          Editor.__test.restoreElementState(box, snap);
+          ok('回滚后子元素结构仍在（不再被 textContent 拍平）',
+            box.childNodes.length === before && !!box.querySelector('a'),
+            box.childNodes.length + ' 个子节点，含 a=' + !!box.querySelector('a'));
+        } else {
+          ok('回滚后子元素结构仍在（不再被 textContent 拍平）', false, 'Editor.__test 未暴露');
+        }
+
+        /* ── 13. Esc 分层：有卡片只关卡片；没有才收胶囊；绝不清标注高亮 ── */
+        var annHi = document.createElement('div');
+        annHi.id = '__proto_annotator_stable_highlight__';
+        document.body.appendChild(annHi);
+
+        document.getElementById('editMe').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+        await wait(150);
+        ok('（前置）编辑卡片已打开', !!document.getElementById('__proto_editor_card__'));
+
+        // 确保胶囊处于展开态，才能观察 Esc 会不会顺手把它也收掉
+        if (pill().className.indexOf('open') === -1) {
+          pill().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+          await wait(70);
+        }
+        var pillOpenBefore = pill().className.indexOf('open') !== -1;
+
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await wait(90);
+        ok('Esc：有卡片时把它关掉', !document.getElementById('__proto_editor_card__'));
+        ok('Esc：关卡片时不会顺带收起胶囊（一次只做一件事）',
+          (pill().className.indexOf('open') !== -1) === pillOpenBefore,
+          '之前=' + pillOpenBefore + ' 之后=' + (pill().className.indexOf('open') !== -1));
+        ok('Esc：绝不清除标注高亮', !!document.getElementById('__proto_annotator_stable_highlight__'));
+
+        var pillOpenNow = pill().className.indexOf('open') !== -1;
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await wait(90);
+        ok('Esc：没有任何层可关时，收起胶囊', pillOpenNow && pill().className.indexOf('open') === -1,
+          '之前=' + pillOpenNow + ' 之后=' + (pill().className.indexOf('open') !== -1));
+        ok('Esc：收起胶囊时同样不清标注高亮',
+          !!document.getElementById('__proto_annotator_stable_highlight__'));
+        annHi.remove();
+
+        /* ── 14. 暂停：面板销毁 ── */
+        clickSeg('paused');
+        await wait(160);
+        ok('胶囊切回暂停态', pill() && pill().getAttribute('data-mode') === 'paused', pill() && pill().getAttribute('data-mode'));
+        ok('暂停后标注面板已销毁', !panelHost());
+
+        report();
+      })();
+    }, 120);
+  });
+
+  function report() {
+    var pre = document.createElement('pre');
+    pre.id = '__wiring__';
+    pre.textContent = JSON.stringify({ results: results, log: window.__log });
+    document.body.appendChild(pre);
+  }
+})();
+</script>
+</body>
+</html>

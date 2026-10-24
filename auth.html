@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="color-scheme" content="light">
+  <title>授权原型目录</title>
+  <style>
+    :root {
+      --green: #22c55e;
+      --green-dark: #16a34a;
+      --ink: #1f2937;
+      --muted: #6b7280;
+      --faint: #9ca3af;
+      --line: #e5e7eb;
+      --panel: #f3f4f6;
+      --danger: #dc2626;
+      --warn: #b45309;
+      --ok: #15803d;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      height: 100%;
+    }
+
+    body {
+      margin: 0;
+      padding: 18px 20px 16px;
+      display: flex;
+      flex-direction: column;
+      background: #ffffff;
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-size: 13px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    /* 首次渲染前隐藏，避免在读取 IndexedDB 期间闪一下错误形态 */
+    body.booting {
+      visibility: hidden;
+    }
+
+    .title {
+      margin: 0 0 6px;
+      font-size: 16px;
+      font-weight: 600;
+      line-height: 1.4;
+      letter-spacing: .1px;
+    }
+
+    .desc {
+      margin: 0 0 10px;
+      font-size: 12.5px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .dir {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 36px;
+      padding: 7px 10px;
+      background: var(--panel);
+      border: 1px solid #ebedf0;
+      border-radius: 6px;
+    }
+
+    .dir-label {
+      flex: none;
+      font-size: 11px;
+      color: var(--faint);
+      white-space: nowrap;
+    }
+
+    .dir-name {
+      min-width: 0;
+      flex: 1 1 auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "PingFang SC", monospace;
+      font-size: 12.5px;
+      color: #111827;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .msg {
+      margin: 8px 0 0;
+      min-height: 18px;
+      font-size: 12px;
+      line-height: 1.45;
+      color: var(--muted);
+      word-break: break-word;
+    }
+
+    .msg.error { color: var(--danger); }
+    .msg.warn  { color: var(--warn); }
+    .msg.ok    { color: var(--ok); }
+
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 10px;
+      margin-top: auto;
+      padding-top: 12px;
+    }
+
+    .btn {
+      height: 32px;
+      padding: 0 16px;
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      line-height: 1;
+      cursor: pointer;
+      transition: background-color .15s ease, border-color .15s ease, opacity .15s ease;
+    }
+
+    .btn:focus-visible {
+      outline: 2px solid rgba(34, 197, 94, .4);
+      outline-offset: 1px;
+    }
+
+    .btn-primary {
+      border: 1px solid var(--green);
+      background: var(--green);
+      color: #ffffff;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: var(--green-dark);
+      border-color: var(--green-dark);
+    }
+
+    .btn-primary:active:not(:disabled) {
+      transform: translateY(1px);
+    }
+
+    .btn-primary:disabled {
+      background: #e5e7eb;
+      border-color: #e5e7eb;
+      color: #9ca3af;
+      cursor: default;
+      transform: none;
+    }
+
+    .btn-ghost {
+      border: 1px solid var(--line);
+      background: #ffffff;
+      color: #374151;
+    }
+
+    .btn-ghost:hover:not(:disabled) {
+      background: #f9fafb;
+      border-color: #d1d5db;
+    }
+
+    .btn-ghost:disabled {
+      opacity: .55;
+      cursor: default;
+    }
+  </style>
+</head>
+<body class="booting">
+  <h1 class="title" id="title">需要授权原型目录</h1>
+  <p class="desc" id="desc">才能把修改保存到所选文件夹</p>
+
+  <div class="dir">
+    <span class="dir-label" id="dirLabel">当前文件</span>
+    <span class="dir-name" id="dirName">—</span>
+  </div>
+
+  <p class="msg" id="msg" role="status" aria-live="polite"></p>
+
+  <div class="actions">
+    <button type="button" class="btn btn-primary" id="primaryBtn">选择目录</button>
+    <button type="button" class="btn btn-ghost" id="cancelBtn">取消</button>
+  </div>
+
+  <script src="auth.js"></script>
+</body>
+</html>

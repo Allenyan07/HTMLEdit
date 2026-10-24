@@ -1,12 +1,14 @@
 # 页改笔 HTMLEdit
 
+**简体中文** · [English](README.en.md)
+
 > AI 生成 HTML 之后的精修工具。本地 HTML 可直接编辑文字和轻量样式，标注模式把方案调整结构化交给 AI 或开发。
 >
 > Chrome MV3 扩展 · 纯原生 JavaScript · 零依赖
 >
 > **作者**：[@Allenyan07](https://github.com/Allenyan07)
 
-[![Chrome Web Store|155](https://img.shields.io/badge/Chrome%20Web%20Store-v2.0.5-blue)](#安装) [![License](https://img.shields.io/badge/license-MIT-green)](#license) [![Manifest](https://img.shields.io/badge/manifest-v3-orange)](#技术架构)
+[![Chrome Web Store|155](https://img.shields.io/badge/Chrome%20Web%20Store-v2.1.0-blue)](#安装) [![License](https://img.shields.io/badge/license-MIT-green)](#license) [![Manifest](https://img.shields.io/badge/manifest-v3-orange)](#技术架构)
 
 ![标注模式](商店截图/01-标注模式.jpg)
 > 标注模式：Shift+Click 标注元素，自动生成定位信息，导出结构化文本给 AI
@@ -130,7 +132,7 @@ HTML 格式表现力强，但没有 PPT/Axure 那种双击即改的文本编辑�
 
 2. 打开 Chrome，访问 `chrome://extensions`
 3. 右上角开启「开发者模式」
-4. 点击「加载已解压的扩展程序」，选择仓库内的 `浏览器插件/prototype-annotator/` 目录
+4. 点击「加载已解压的扩展程序」，选择仓库根目录（即含 `manifest.json` 的那一层）
 5. 扩展图标出现在工具栏，点击即可使用
 
 ### 使用本地 HTML 文件
@@ -242,35 +244,70 @@ icons/                     # 4 种状态的图标（default/inactive/active/edit
 ### 本地开发
 
 1. 克隆仓库
-2. `chrome://extensions` → 开启开发者模式 → 加载 `浏览器插件/prototype-annotator/` 目录
+2. `chrome://extensions` → 开启开发者模式 → 加载仓库根目录（含 `manifest.json`）
 3. 修改代码后，在扩展卡片上点「刷新」按钮即可重载
 
 ### 目录结构
 
 ```
-.
-├── .gitignore
-├── LICENSE
-├── README.md
+.                                 # 仓库根目录就是要加载到 Chrome 的扩展目录
+├── manifest.json                 # MV3 清单
+├── background.js                 # Service Worker
+├── popup.html / popup.js / popup.css
+├── auth.html / auth.js           # 目录授权（File System Access）
+├── content/                      # 内容脚本模块（编辑 / 标注 / 源文件回填）
+├── icons/                        # 4 种状态图标
+├── test-fixtures/                # 回归测试与复现页面
 ├── 商店截图/
-│   ├── 01-标注模式.jpg
-│   ├── 02-编辑模式.jpg
-│   ├── 03-编辑操作.jpg
-│   └── 04-导出标注.jpg
-└── 浏览器插件/
-    └── prototype-annotator/      # 扩展源码（加载到 Chrome 的目录）
-        ├── manifest.json
-        ├── background.js
-        ├── popup.html / popup.js / popup.css
-        ├── content/              # 8 个功能模块
-        └── icons/                # 4 种状态图标
+├── README.md / README.en.md
+├── PRIVACY.md
+└── LICENSE
 ```
 
 ---
 
-## Roadmap
+## 更新日志
 
-### 已完成（v2.0.5）
+### v2.1.0（2026-10-18）
+
+**新增**
+
+- **右下角模式胶囊**：颜色即当前模式（灰=暂停 / 绿=编辑 / 紫蓝=标注），hover 展开三段即可切换；原来的面板浮标已并入其中。暂停时自动隐藏，鼠标移到右下角才浮现
+- **快捷键**：`⌥Q` 切编辑、`⌥W` 切标注（再按一次回到暂停）、`⌥E` 导出标注（仅标注模式生效）。走浏览器级 `chrome.commands`，页面抢不走键；键位提示按系统显示（macOS 用 `⌥`，Windows 用 `Alt+`）
+- **标注数量角标**：胶囊右上角显示本页标注数
+- **扩展弹窗显示当前模式的快捷键**，不用记也不用翻文档
+
+**改进**
+
+- **授权不再挡在编辑模式门口**：可以直接进编辑模式、直接改；只有第一次真正保存时才需要授权，点一下即可，**授权成功后自动完成这次保存**，文字不会丢
+- **Esc 只关「最上面那一层」**：有卡片关卡片（不会顺手收起胶囊）、什么都没有才收胶囊，**任何情况都不清除页面上的标注高亮**
+- 「关闭」改名为「暂停」，语义更准
+
+**修复**
+
+- JS 动态渲染的元素**无法定位与保存**（P1-09）：现在会在源文件的脚本模板里安全回填，并提示具体行号
+- 文本启发式**把编辑写到另一个同文元素**上（P1-10）：现在按 class 兼容性校验，改不了就明确拒绝而不是静默写错
+- **保存成功会污染模式状态**：后台被浏览器回收后，一条保存回执会把模式改成暂停、把已改数量清零，刷新后插件自己退出编辑模式
+- **授权窗口死循环**：文件不在已授权目录时，「重新授权」永远修不好，会陷入「失败→弹窗→授权→仍失败→再弹窗」
+- **导出标注功能此前完全不可用**：`Ctrl+Shift+E` 从 v2.0.6 起就会抛错
+- 保存失败回滚会**销毁元素内部的链接/按钮**
+- 编辑模式下页面输入框的 `Ctrl+Z` 被插件劫持
+- 快速切换模式时最后一次按键被吃掉
+- 从 iframe 里授权会把目录绑错路径
+
+### v2.0.6
+
+- 新增源文件字面量回填兜底：页面脚本运行时渲染出来的文案也能改
+- 修复文本启发式错靶：同标签同文本但其实是另一个元素时不再静默写错
+- 源码结构扫描替代「文本紧贴 `>` 即元素边界」的错误假设（该假设有 6 类可复现误伤）
+
+### v2.0.5
+
+- 编辑模式重构：Shift+Click 打开绿色编辑卡片，一步保存
+- Popup 三段控件（关闭 / 编辑 / 标注）
+- 图标更新
+
+### v2.0.3
 
 - 元素标注（Shift+Click）
 - 区域标注（Shift+拖拽）

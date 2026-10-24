@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>工单列表（脚本模板渲染示例）</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 13px; color: #333; padding: 24px; }
+h1 { font-size: 18px; margin-bottom: 12px; }
+h2 { font-size: 14px; margin: 16px 0 8px; color: #4e5969; }
+.toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+.btn-link { color: #3370ff; background: none; border: none; cursor: pointer; font-size: 13px; padding: 0 4px; }
+table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+th, td { border-bottom: 1px solid #e5e6eb; padding: 8px; text-align: left; }
+.card-list { display: flex; flex-wrap: wrap; gap: 12px; }
+.card { border: 1px solid #e5e6eb; border-radius: 6px; padding: 12px; min-width: 220px; }
+.card-title { font-weight: 600; margin-bottom: 8px; }
+.field-tag { display: inline-block; padding: 1px 6px; border-radius: 3px; background: #f2f3f5; color: #4e5969; }
+</style>
+</head>
+<body>
+<!-- 回归测试页：表格与卡片内容全部由脚本模板在运行时渲染，源文件里没有对应的静态节点 -->
+<!-- 编辑提示：模板卡片的操作按钮只在脚本模板里出现，静态 HTML 中不存在 -->
+<h1>工单列表</h1>
+<h2>编辑模板</h2>
+
+<div class="toolbar">
+  <label>状态</label>
+  <select id="statusFilter">
+    <option>全部</option>
+    <option>审批通过</option>
+    <option>待审批</option>
+  </select>
+  <button class="btn-link" onclick="toast('查询')">查询</button>
+</div>
+
+<table>
+  <thead>
+    <tr><th>单号</th><th>状态</th><th>处理人</th><th>操作</th></tr>
+  </thead>
+  <tbody id="orderBody"></tbody>
+</table>
+
+<h2>模板卡片</h2>
+<div id="tplList" class="card-list"></div>
+
+<script>
+const orders = [
+  { id: 'GD-1001', status: '审批通过', owner: '张三' },
+  { id: 'GD-1002', status: '审批通过', owner: '李四' },
+  { id: 'GD-1003', status: '待审批', owner: '王五' }
+];
+
+const tpls = [
+  { name: '标准流程模板', scope: '全域', enabled: true },
+  { name: '加急流程模板', scope: '华东', enabled: false }
+];
+
+function renderOrders() {
+  document.getElementById('orderBody').innerHTML = orders.map((r) => `
+    <tr>
+      <td>${r.id}</td>
+      <td><span class="status">${r.status}</span></td>
+      <td>${r.owner}</td>
+      <td>
+        <button class="btn-link" onclick="openDetail('${r.id}')">详情</button>
+        <button class="btn-link" onclick="openCost('${r.id}')">费用明细</button>
+        <button class="btn-link" onclick="openLog('${r.id}')">查看日志</button>
+        <button class="btn-link" onclick="claimFlow('${r.id}')">认领记录</button>
+        <button class="btn-link" onclick="activate('${r.id}')">启用</button>
+        <button class="btn-link" onclick="revoke('${r.id}')">停用</button>
+      </td>
+    </tr>`).join('');
+}
+
+function renderTpls() {
+  document.getElementById('tplList').innerHTML = tpls.map((t) => `
+    <div class="card">
+      <div class="card-title">${t.name}</div>
+      <span class="field-tag">流程名称</span>
+      <button class="btn-link" onclick="openEdit('标准流程模板')">编辑</button>
+      <button class="btn-link" onclick="toast('打开审批编辑（演示）')">编辑</button>
+      <button class="btn-link" onclick="copyTpl('${t.name}')">复制</button>
+      <button class="btn-link" onclick="removeTpl('${t.name}')">删除</button>
+      <button class="btn-link" onclick="publish('${t.name}')">发布</button>
+      <button class="btn-link" onclick="unpublish('${t.name}')">撤销</button>
+    </div>`).join('');
+}
+
+renderOrders();
+renderTpls();
+</script>
+</body>
+</html>

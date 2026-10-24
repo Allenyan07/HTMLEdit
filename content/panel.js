@@ -51,10 +51,17 @@ const Panel = (() => {
     refreshList();
   }
 
+  // 浮标已并入模式胶囊（content/hud.js）。这里只把「面板开合」这一事实
+  // 同步给胶囊，让胶囊左移避让，不再自己创建右下角元素。
+  function notifyHudPanel(open) {
+    if (typeof Hud === 'undefined' || !Hud.setPanelOpen) return;
+    try { Hud.setPanelOpen(!!open); } catch (e) {}
+  }
+
   function destroy() {
     closeEditCard();
     closeExportOverlay();
-    hideFab();
+    notifyHudPanel(false);
     if (panelContainer) {
       panelContainer.remove();
       panelContainer = null;
@@ -72,7 +79,7 @@ const Panel = (() => {
       panelEl.style.display = '';
     }
     isPanelVisible = true;
-    hideFab();
+    notifyHudPanel(true);
     injectPushStyles();
     refreshList();
   }
@@ -83,11 +90,11 @@ const Panel = (() => {
     }
     isPanelVisible = false;
     removePushStyles();
+    notifyHudPanel(false);
   }
 
   function minimize() {
     hide();
-    showFab();
   }
 
   function injectPushStyles() {
@@ -180,30 +187,14 @@ const Panel = (() => {
     }
   }
 
+  // 已并入胶囊：保留空实现，兼容旧调用点
   function showFab() {
-    if (fabEl) return;
-    fabEl = document.createElement('div');
-    fabEl.className = '__proto_annotator_fab__';
-    fabEl.textContent = '📋';
-    fabEl.title = '打开标注面板';
-    fabEl.addEventListener('click', () => {
-      show();
-    });
-    document.body.appendChild(fabEl);
-    requestAnimationFrame(() => {
-      fabEl.classList.add('__proto_annotator_fab_visible__');
-    });
+    notifyHudPanel(false);
   }
 
+  // 已并入胶囊：保留空实现，兼容旧调用点
   function hideFab() {
-    if (!fabEl) return;
-    fabEl.classList.remove('__proto_annotator_fab_visible__');
-    setTimeout(() => {
-      if (fabEl) {
-        fabEl.remove();
-        fabEl = null;
-      }
-    }, 200);
+    notifyHudPanel(false);
   }
 
   function buildPanelHTML() {
@@ -479,6 +470,7 @@ const Panel = (() => {
   }
 
   function closeEditCard() {
+    const had = !!editOverlay;
     if (editOverlay) {
       if (editCardCloseTimer) {
         clearTimeout(editCardCloseTimer);
@@ -496,6 +488,7 @@ const Panel = (() => {
       }, 200);
       editOverlay = null;
     }
+    return had;
   }
 
   async function locateAnnotation(id) {
@@ -757,6 +750,7 @@ const Panel = (() => {
   }
 
   function closeExportOverlay() {
+    const had = !!exportCardContainer;
     if (exportCardContainer) {
       const overlay = exportCardShadow?.querySelector('.edit-overlay');
       if (overlay) overlay.classList.remove('edit-overlay-visible');
@@ -768,6 +762,7 @@ const Panel = (() => {
         }
       }, 200);
     }
+    return had;
   }
 
   function escapeHtml(str) {
@@ -1070,9 +1065,11 @@ const Panel = (() => {
       '  .export-textarea { background: #1c2128; color: #e6edf3; border-color: #30363d; }' +
       '  .export-card-actions { border-top-color: #21262d; }' +
       '}';
-  }  function closeOverlays() {
-    closeEditCard();
-    closeExportOverlay();
+  }  // Esc 用：返回"是否关掉了至少一层浮层"
+  function closeOverlays() {
+    const a = closeEditCard();
+    const b = closeExportOverlay();
+    return !!(a || b);
   }
 
   return {
@@ -1083,6 +1080,12 @@ const Panel = (() => {
     minimize,
     toggle,
     refreshList,
-    closeOverlays
+    closeOverlays,
+    // 这两个函数一直存在，但漏在导出对象外面：面板自己的「📥 导出」按钮能用，
+    // 从 content.js 调 Panel.exportAnnotations() 却会抛
+    // "Panel.exportAnnotations is not a function"。
+    // 结果就是 Ctrl+Shift+E（v2.0.6 起）和新的 ⌥E 导出都是坏的。
+    exportAnnotations,
+    closeExportOverlay
   };
 })();

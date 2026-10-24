@@ -302,11 +302,14 @@ const Annotator = (() => {
     showToast('标注 ' + annotation.id + ' 已保存');
   }
 
+  // 返回是否真的关掉了卡片，供 Esc 判断"这一下是否已经用掉"
   function closeCard() {
+    const had = !!currentCard;
     if (currentCard) {
       currentCard.container.remove();
       currentCard = null;
     }
+    return had;
   }
 
   function showBadge(annotation) {

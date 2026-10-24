@@ -78,9 +78,11 @@
       <a class="case" href="module-a/detail.html"><strong>07A 同名 detail 页面 A</strong><span>用于验证同名文件定位。</span></a>
       <a class="case" href="module-b/detail.html"><strong>07B 同名 detail 页面 B</strong><span>用于验证同名文件定位。</span></a>
       <a class="case" href="p1-03-open-this/detail.html"><strong>08 P1-03 路径推断失败</strong><span>故意授权错误目录，触发同名文件 fallback。</span></a>
+      <a class="case" href="09-script-template.html"><strong>09 脚本模板渲染页</strong><span>表格与卡片由 JS 数据 + 模板字面量渲染，验证动态文案回填。</span></a>
     </div>
     <div class="note">
-      建议授权目录选择本文件所在的 <code>html-cases</code> 文件夹。修复问题后，可重复打开这些页面做回归。
+      建议授权目录选择本文件所在的 <code>html-cases</code> 文件夹。修复问题后，可重复打开这些页面做回归。<br>
+      自动化测试：<code>node test-fixtures/raw-patch.test.js</code>（48 项断言）与 <code>node test-fixtures/path-resolution.test.js</code>。
     </div>
   </main>
 </body>

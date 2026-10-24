@@ -267,6 +267,7 @@ const Editor = (() => {
     document.body.appendChild(container);
 
     currentCard = { container, shadow, card, targetEl, targetMeta, sourceLocator, originalText, originalStyle };
+    authAutoOpenedForCard = null;   // 新的一张卡，重新允许自动弹一次授权窗
     positionCard(card, position);
     bindCardEvents();
     requestAnimationFrame(() => card.classList.add('card-visible'));
@@ -369,6 +370,7 @@ const Editor = (() => {
       confirmBtn.disabled = false;
       confirmBtn.textContent = '确认修改';
       error.textContent = formatSaveError(patchedSource.error);
+      maybeRequestAuth(patchedSource.error);
       return;
     }
 
@@ -391,6 +393,7 @@ const Editor = (() => {
       confirmBtn.disabled = false;
       confirmBtn.textContent = '确认修改';
       error.textContent = formatSaveError(response && response.error);
+      maybeRequestAuth(response && response.error);
       return;
     }
 
@@ -408,7 +411,7 @@ const Editor = (() => {
       snapshot: snapshot
     };
     closeCard();
-    showUndoToast('已修改并保存到 ' + pageName);
+    showUndoToast('已修改并保存到 ' + pageName + describeRawHit(patchedSource));
   }
 
   function syncEditableLocalStorage(patch) {
@@ -435,6 +438,9 @@ const Editor = (() => {
   function captureElementState(el) {
     return {
       value: el.value,
+      // 保存子节点的「原始节点引用」而不是 innerHTML 字符串：
+      // 回滚时把同一些节点放回去，addEventListener 绑定的监听器不会丢。
+      childNodes: Array.from(el.childNodes),
       textContent: el.textContent,
       placeholder: el.getAttribute('placeholder'),
       valueAttr: el.getAttribute('value'),
@@ -445,7 +451,14 @@ const Editor = (() => {
 
   function restoreElementState(el, state) {
     if ('value' in el) el.value = state.value;
-    el.textContent = state.textContent;
+    if (state.childNodes) {
+      // 不要用 el.textContent = ... 回滚：那会把所有子元素拍成一个纯文本节点，
+      // 链接/按钮就此消失。这里把捕获时保留的原节点按顺序放回去。
+      el.textContent = '';
+      state.childNodes.forEach((node) => el.appendChild(node));
+    } else {
+      el.textContent = state.textContent;
+    }
     setNullableAttr(el, 'placeholder', state.placeholder);
     setNullableAttr(el, 'value', state.valueAttr);
     el.className = state.className;
@@ -502,8 +515,9 @@ const Editor = (() => {
     const parser = new DOMParser();
     const sourceDoc = parser.parseFromString(source.html, 'text/html');
     const sourceEl = findSafeSourceElement(sourceDoc, card);
+
     if (!sourceEl) {
-      return { success: false, error: { code: 'SOURCE_TARGET_NOT_FOUND' } };
+      return buildRawPatchedSource(source.html, sourceDoc, card, nextText, textChanged, stylePatch);
     }
 
     const previousLocalStoragePatch = getLocalStoragePatch(sourceDoc, card.sourceLocator);
@@ -517,6 +531,73 @@ const Editor = (() => {
       previousLocalStoragePatch: previousLocalStoragePatch,
       localStoragePatch: getLocalStoragePatch(sourceDoc, card.sourceLocator)
     };
+  }
+
+  // 兜底：源文档里定位不到节点，说明该元素是页面脚本运行时渲染出来的。
+  // 退一步在源文件原始字符串上，按「标签锚定 + 唯一匹配」把文本回填进脚本模板。
+  // 只在既有定位全部失败后才参与，静态页面完全不走这里。
+  function buildRawPatchedSource(sourceHtml, sourceDoc, card, nextText, textChanged, stylePatch) {
+    if (Object.keys(stylePatch).length) {
+      // 样式改不到脚本模板里。宁可整条拒绝，也不做半截写入。
+      return { success: false, error: { code: 'SOURCE_TEMPLATE_STYLE_UNSUPPORTED' } };
+    }
+    if (!textChanged || typeof RawPatch === 'undefined') {
+      return { success: false, error: { code: 'SOURCE_TARGET_NOT_FOUND', rawReason: 'NOT_FOUND' } };
+    }
+
+    const structureExists = sourceStructureExists(sourceDoc, card);
+    const result = RawPatch.patchSourceText(
+      sourceHtml,
+      card.targetEl.tagName.toLowerCase(),
+      card.originalText,
+      nextText,
+      {
+        anchors: collectRawAnchors(card.targetEl),
+        elementClasses: card.targetEl.getAttribute('class'),
+        // 源文件里本就有同路径同标签的静态结构时，说明 DOM 与源文件的差异只是文本层面
+        // （被别的标签拆开、实体写法不同等），此时改到任何字面量位置都是错的。
+        // 仍调用本函数以取得行号等诊断信息，但不接受任何候选。
+        allowScript: !structureExists,
+        allowHtml: !structureExists
+      }
+    );
+
+    if (!result.ok) {
+      return {
+        success: false,
+        error: {
+          code: 'SOURCE_TARGET_NOT_FOUND',
+          rawReason: result.reason,
+          rawDiagnostics: result.diagnostics,
+          rawStructureExists: structureExists
+        }
+      };
+    }
+
+    return {
+      success: true,
+      html: result.html,
+      previousHtml: sourceHtml,
+      previousLocalStoragePatch: null,
+      localStoragePatch: null,
+      rawHit: { line: result.line, strategy: result.strategy }
+    };
+  }
+
+  // 取运行时元素的辨识性属性值，用于在多个同文案候选之间平局裁决。
+  // 源文件里的值可能带 JS 转义（onclick="openRevoke(\'effect\')"），
+  // 去反斜杠的比对在 RawPatch 内部完成。
+  function collectRawAnchors(el) {
+    const anchors = [];
+    if (!el || !el.attributes) return anchors;
+    ['onclick', 'href', 'title'].forEach((name) => {
+      const value = el.getAttribute(name);
+      if (value) anchors.push(value);
+    });
+    Array.prototype.forEach.call(el.attributes, (attr) => {
+      if (attr.name.indexOf('data-') === 0 && attr.value) anchors.push(attr.value);
+    });
+    return anchors;
   }
 
   function getLocalStoragePatch(doc, locator) {
@@ -607,7 +688,29 @@ const Editor = (() => {
   function findSourceElementByOriginalText(doc, card) {
     const tagName = card.targetEl.tagName.toLowerCase();
     const candidates = Array.from(doc.querySelectorAll(tagName)).filter((el) => sourceElementMatchesCard(el, card));
-    return candidates.length === 1 ? candidates[0] : null;
+    if (!candidates.length) return null;
+    // 只按「同标签 + 同文本」找，会在页面里撞上另一个同文元素。
+    // 典型场景：表格里 class=field-tag 的单元格，与页面另一处隐藏表单中的
+    // 同文本元素撞车——只按「标签名 + 文本」匹配会静默写错目标
+    // class=field-chip 的标签上（源文件 445 行），用户完全看不到变化。
+    // 因此再加一道 class 兼容性校验。
+    const compatible = candidates.filter((el) => sourceClassCompatible(card.targetEl, el));
+    return compatible.length === 1 ? compatible[0] : null;
+  }
+
+  function sourceClassCompatible(liveEl, sourceEl) {
+    if (typeof RawPatch === 'undefined' || typeof RawPatch.classCompatible !== 'function') return true;
+    return RawPatch.classCompatible(
+      RawPatch.classTokensOf(liveEl.getAttribute('class')),
+      RawPatch.classTokensOf(sourceEl.getAttribute('class'))
+    );
+  }
+
+  // 该元素在源文件里是否本就有同路径同标签的静态结构。
+  // 是 → 说明 DOM 与源文件的差异只是文本层面，绝不能去改 <script> 里的模板。
+  function sourceStructureExists(sourceDoc, card) {
+    const direct = findSourceElement(sourceDoc, card.sourceLocator);
+    return !!(direct && direct.tagName === card.targetEl.tagName);
   }
 
   function sourceElementMatchesCard(el, card) {
@@ -743,16 +846,39 @@ const Editor = (() => {
     });
   }
 
+  // 返回「这次是否真的关掉了什么」，供 Esc 判断要不要继续往下做别的事。
+  // 编辑器自己的高亮标记（highlightOverlay）随卡片一起清掉；
+  // 注意这与「标注高亮」是两个不同的东西，后者绝不在这里碰。
   function closeCard() {
+    const hadCard = !!currentCard;
     if (currentCard) {
       currentCard.container.remove();
       currentCard = null;
     }
+    // 卡片没了就不该再等授权回执，否则标志会永久悬挂，
+    // 之后任何一次授权完成都会去保存一张用户没要求保存的卡。
+    pendingAuthCard = null;
+
+    const hadHighlight = !!highlightOverlay;
+    removeHighlight();
+    return hadCard || hadHighlight;
+  }
+
+  // 焦点是否落在用户正在打字的控件上。
+  // 用于避免插件的全局快捷键劫持页面输入框的原生行为（尤其 Ctrl+Z 撤销）。
+  function isTypingTarget(el) {
+    if (!el || el.nodeType !== Node.ELEMENT_NODE) return false;
+    const tag = el.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+    if (el.isContentEditable) return true;
+    return false;
   }
 
   function handleKeyDown(e) {
     if (!isActive) return false;
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !currentCard && lastUndo) {
+    // 用户正在页面输入框里打字时，Ctrl+Z 必须交还给页面
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z'
+      && !currentCard && lastUndo && !isTypingTarget(document.activeElement)) {
       e.preventDefault();
       undoLastEdit();
       return true;
@@ -820,7 +946,7 @@ const Editor = (() => {
     el.className = '__proto_editor_undo_toast__';
     el.__proto_annotator = true;
     el.style.cssText =
-      'position:fixed;right:18px;bottom:18px;z-index:2147483647;' +
+      'position:fixed;right:18px;bottom:84px;z-index:2147483647;' +
       'display:flex;align-items:center;gap:12px;max-width:360px;' +
       'padding:10px 12px;border-radius:8px;background:#1f2328;color:#fff;' +
       'box-shadow:0 8px 24px rgba(0,0,0,.18);font:13px/1.4 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;' +
@@ -886,10 +1012,151 @@ const Editor = (() => {
     if (code === 'WRITE_FAILED') return '写入 HTML 失败，请检查文件是否被占用或不可写';
     if (code === 'WRITE_TIMEOUT') return '写入 HTML 超时，请检查文件是否被占用，或重新授权目录后重试';
     if (code === 'BACKGROUND_TIMEOUT') return '保存响应超时，请重新打开页面或在扩展弹窗中重新授权目录后重试';
-    if (code === 'BACKGROUND_UNAVAILABLE') return '扩展后台暂时不可用，请刷新页面后重试';
-    if (code === 'SOURCE_TARGET_NOT_FOUND') return '无法在源 HTML 中定位当前元素，请刷新页面后重试';
+    if (code === 'BACKGROUND_UNAVAILABLE') return '扩展后台暂时不可用，请稍后重试';
+    if (code === 'SOURCE_TEMPLATE_STYLE_UNSUPPORTED') {
+      return '这个元素由页面脚本动态渲染，只能改文字，暂不支持改样式';
+    }
+    if (code === 'SOURCE_TARGET_NOT_FOUND') {
+      return '无法在源 HTML 中定位当前元素\n' + describeSourceMiss(error);
+    }
     if (code === 'UNSUPPORTED') return '当前浏览器不支持目录写入能力';
     return '保存失败，请重新授权目录后重试';
+  }
+
+  // 定位失败时给出可执行线索，而不是让用户反复刷新页面
+  function describeSourceMiss(error) {
+    const reason = error && error.rawReason;
+    const diagnostics = error && error.rawDiagnostics;
+    const lines = [];
+
+    if (error && error.rawStructureExists) {
+      lines.push('这个元素在源 HTML 里是静态存在的，但它的文字被 <b>、<br> 之类标签拆开了（或写法与源文件不同），无法自动定位。');
+      lines.push('请直接打开源 HTML 修改对应位置。');
+      return lines.join('\n');
+    }
+
+    if (reason === 'AMBIGUOUS' && diagnostics && diagnostics.candidates && diagnostics.candidates.length) {
+      const where = diagnostics.candidates.map((item) => '第 ' + item.line + ' 行').join('、');
+      lines.push('这段文字在源文件里有 ' + diagnostics.candidates.length + ' 处相同写法（' + where + '），无法安全判断是哪一处。');
+      lines.push('请直接修改源 HTML 中对应位置。');
+      return lines.join('\n');
+    }
+
+    if (reason === 'LOW_INFORMATION') {
+      lines.push('这段文字太短，或者只由数字与符号组成，无法在源文件里安全定位。');
+      lines.push('它多半是页面脚本用数据渲染出来的，请直接修改脚本里的数据字段。');
+      return lines.join('\n');
+    }
+
+    if (reason === 'UNSAFE_CHAR') {
+      lines.push('这个元素由页面脚本动态渲染，新文字里不能包含引号、反斜杠、尖括号或换行。');
+      lines.push('（这些字符会破坏源文件里的脚本）');
+      return lines.join('\n');
+    }
+
+    if (reason === 'TOO_LONG') {
+      lines.push('新文字过长，无法安全回填到页面脚本里。');
+      lines.push('请直接修改源 HTML。');
+      return lines.join('\n');
+    }
+
+    if (diagnostics && diagnostics.occurrences && diagnostics.occurrences.length) {
+      const inScript = diagnostics.occurrences.filter((item) => item.inScript);
+      if (inScript.length) {
+        lines.push('这段文字由页面脚本生成，源文件里出现在第 ' + inScript[0].line + ' 行附近的脚本中。');
+        lines.push('请直接修改该脚本的模板或数据字段。');
+        return lines.join('\n');
+      }
+      if (diagnostics.occurrences.every((item) => item.inComment)) {
+        lines.push('这段文字在源文件里只出现在注释中，没有对应的真实元素。');
+        lines.push('请直接修改源 HTML。');
+        return lines.join('\n');
+      }
+    }
+
+    lines.push('源文件里没有与这段文字对应的元素。两种可能：');
+    lines.push('1) 它是页面脚本运行时渲染出来的（例如数据字段）——请改源 HTML 里的脚本模板或数据字段，刷新页面无效；');
+    lines.push('2) 当前页面内容和源文件已经不一致（比如上一次编辑没保存成功、留下了残留文字）——这种情况下刷新页面即可恢复原状。');
+    return lines.join('\n');
+  }
+
+  // 回填的是脚本模板而不是单个元素，改动会影响所有使用该模板的位置，需要明确告知
+  // ───────────────── 授权联动：失败即时授权 + 自动重试 ─────────────────
+  // 设计原则：切模式不拦授权，只有真要落盘时才需要。
+  // 所以保存因授权/路径失败时，弹出授权小窗；授权成功后自动重试这一次保存，
+  // 用户的文字不会丢。
+  const AUTH_ERROR_CODES = [
+    'NO_DIRECTORY',
+    'PERMISSION_PROMPT_REQUIRED',
+    'PERMISSION_DENIED',
+    'DIRECTORY_REAUTH_REQUIRED',
+    'OUTSIDE_DIRECTORY'
+  ];
+
+  // 待重试保存的那张卡：用对象引用做身份，避免「授权成功后拿旧意图保存了新内容」
+  let pendingAuthCard = null;
+  // 每张卡最多自动弹一次授权窗：防止「授权成功 → 重试 → 仍失败 → 再弹窗」死循环
+  let authAutoOpenedForCard = null;
+
+  function isAuthError(error) {
+    return !!error && AUTH_ERROR_CODES.indexOf(error.code) !== -1;
+  }
+
+  function maybeRequestAuth(error) {
+    if (!isAuthError(error)) return;
+    // 已经有一次待重试的授权：不重复开窗（连点两次「确认修改」不该弹两个窗）
+    if (pendingAuthCard) return;
+    // 同一张卡已经自动弹过一次、授权后仍然失败 → 说明重授权解决不了，别再弹
+    if (authAutoOpenedForCard === currentCard) {
+      showUndoToast(describeAuthStuck(error), false, 4200);
+      return;
+    }
+    authAutoOpenedForCard = currentCard;
+    pendingAuthCard = currentCard;
+    Messaging.sendToBackground({
+      type: 'REQUEST_AUTH',
+      code: error && error.code,
+      fileUrl: window.location.href,
+      tabUrl: window.location.href
+    }).catch(() => {});
+  }
+
+  // 「重新授权也修不好」的那类原因，直接把正确动作告诉用户，
+  // 否则用户会反复点「重新授权」而问题永远不消失（授权死循环）。
+  function describeAuthStuck(error) {
+    const code = error && error.code;
+    if (code === 'OUTSIDE_DIRECTORY') {
+      return '这个文件不在已授权的文件夹里，重新授权无效：请在扩展弹窗里改选一个包含它的文件夹。';
+    }
+    if (code === 'DIRECTORY_REAUTH_REQUIRED') {
+      return '授权记录不完整，请在扩展弹窗里重新选择目录。';
+    }
+    return '授权后仍无法保存，请在扩展弹窗里检查目录设置。';
+  }
+
+  // 授权小窗完成后由 content.js 调过来
+  function onAuthCompleted(ok) {
+    const card = pendingAuthCard;
+    pendingAuthCard = null;
+    if (!ok || !card) return;
+    // 卡片已被 Esc 关掉、或用户换了另一个元素 → 不拿旧意图去保存
+    if (currentCard !== card) return;
+    showUndoToast('授权完成，正在重试保存…', false, 1600);
+    confirmEdit();
+  }
+
+  // 快捷键切换失败（例如脚本注入失败）也要让用户看到
+  function showModeSwitchError(error) {
+    const code = error && error.code;
+    const text = code === 'INJECTION_FAILED'
+      ? '无法在当前页面启用：请刷新页面后重试'
+      : '模式切换失败，请刷新页面后重试';
+    showUndoToast(text, false, 2600);
+  }
+
+  function describeRawHit(patchedSource) {
+    if (!patchedSource || !patchedSource.rawHit) return '';
+    return '（脚本模板：源文件第 ' + patchedSource.rawHit.line + ' 行，使用该模板的位置会一起变化）';
   }
 
   function isToolElement(el) {
@@ -936,7 +1203,7 @@ const Editor = (() => {
       '.toggle-btn{width:32px;height:32px;border:1px solid #d8dee4;border-radius:6px;background:#fff;color:#1f2328;font-size:13px;font-weight:700;line-height:30px;cursor:pointer;transition:background .15s,border-color .15s,color .15s;}' +
       '.italic-toggle{font-style:italic;}' +
       '.toggle-btn.active{background:rgba(34,197,94,.12);border-color:#22c55e;color:#15803d;}' +
-      '.error{min-height:18px;margin-top:6px;color:#d1242f;font-size:11px;line-height:18px;}' +
+      '.error{min-height:18px;margin-top:6px;color:#d1242f;font-size:11px;line-height:18px;white-space:pre-line;}' +
       '.card-actions{display:flex;justify-content:flex-end;gap:8px;padding:8px 16px 12px;border-top:1px solid #eaeef2;}' +
       '.btn{height:32px;padding:0 16px;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-weight:500;transition:background .15s;}' +
       '.btn:disabled{opacity:.7;cursor:not-allowed;}' +
@@ -950,6 +1217,14 @@ const Editor = (() => {
     deactivate,
     closeCard,
     handleKeyDown,
-    getEditState
+    getEditState,
+    onAuthCompleted,
+    showModeSwitchError,
+    // 仅供自动化测试使用，不属于对外 API。
+    // 回滚逻辑是内部函数，不暴露就没法验证「回滚是否销毁了子元素」。
+    __test: {
+      captureElementState: captureElementState,
+      restoreElementState: restoreElementState
+    }
   };
 })();
